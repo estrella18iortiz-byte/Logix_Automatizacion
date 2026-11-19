@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Serie="A" Folio="101" Fecha="2026-11-18T00:31:35"
+  SubTotal="1336.25" Moneda="MXN" Total="1550.00" TipoDeComprobante="I" Exportacion="01"
+  MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
+  <cfdi:Emisor Rfc="PDA010101AA1" Nombre="Papelería Demo del Altiplano S.A. de C.V." RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="ITM990101AB1" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"
+    RegimenFiscalReceptor="603" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="10" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Plumones para pizarrón blanco (caja con 4)" ValorUnitario="81.90" Importe="819.00" ObjetoImp="02"/>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="5" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Hojas blancas tamaño carta (paquete 500)" ValorUnitario="103.45" Importe="517.25" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="213.75"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="11111111-2222-4333-8444-555555555555" FechaTimbrado="2026-11-18T00:31:35"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

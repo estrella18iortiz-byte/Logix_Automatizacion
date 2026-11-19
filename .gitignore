@@ -1,0 +1,23 @@
+# ---- Secretos: NUNCA se suben (token de Telegram, contraseña del correo) ----
+.env
+.env.*
+!.env.example
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ---- Archivos que Logix genera al usarse (se vuelven a crear solos) ----
+documentos/
+buzon/
+banco/
+
+# ---- Otros ----
+*.zip
+*.log
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
