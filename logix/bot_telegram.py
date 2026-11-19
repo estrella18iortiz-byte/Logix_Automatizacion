@@ -1,11 +1,11 @@
-"""Robot R7 · Bot de Telegram de Logix.
+"""Robot R8 · Bot de Telegram de Logix.
 
 Lo que se le puede escribir al bot:
   /start                      → instrucciones
   /vincular 123456            → liga este chat con su usuario o proveedor (código que muestra Logix)
-  OC-2026-0001 (o REQ-, PAG-) → responde en qué etapa va el trámite
+  OC-2026-0001 (o PAG-...)    → responde en qué etapa va el trámite
   un archivo .xml             → (proveedores) envía su factura; el pie del archivo debe traer el folio de la OC
-                                 y el robot R3 la valida en ese momento
+                                 y el robot R2 la valida en ese momento
 
 Privacidad: solo responde a chats vinculados, y un proveedor solo puede consultar SUS órdenes.
 """
@@ -14,7 +14,7 @@ import re
 from . import consultas, db
 from .robot_facturas import PATRON_OC, procesar_factura
 
-PATRON_FOLIO = re.compile(r"(REQ|OC|PAG)-\d{4}-\d{4}", re.IGNORECASE)
+PATRON_FOLIO = re.compile(r"(OC|PAG)-\d{4}-\d{4}", re.IGNORECASE)
 
 AYUDA = ("Hola, soy el asistente de Logix 🤖 (datos simulados).\n\n"
          "• Para vincular tu cuenta: /vincular y tu código de 6 dígitos (lo ves en Logix).\n"
@@ -41,7 +41,7 @@ def vincular(cur, chat_id: int, codigo: str) -> str:
                     f"OUTPUT INSERTED.id, INSERTED.{campo} WHERE codigo_telegram = ?", chat_id, codigo)
         f = cur.fetchone()
         if f:
-            db.bitacora(cur, "ROBOT-R7", "USUARIO" if tabla == "usuarios" else "PROVEEDOR", f[0],
+            db.bitacora(cur, "ROBOT-R8", "USUARIO" if tabla == "usuarios" else "PROVEEDOR", f[0],
                         "VINCULA_TELEGRAM")
             return f"✅ Listo, {f[1]}. A partir de ahora recibirás aquí los avisos de Logix."
     return "❌ Ese código no es válido o ya se usó. Revisa el código que te muestra Logix."
@@ -64,7 +64,7 @@ def consultar(cur, quien: dict, folio: str) -> str:
     if ultimo:
         texto += f"\n\nÚltimo movimiento: {ultimo['accion'].replace('_', ' ').lower()} ({ultimo['fecha']:%d/%m %H:%M})"
     if s["etapa"] is None:
-        texto += "\n⚠️ Detenido por una excepción; Adquisiciones ya fue avisada."
+        texto += "\n⚠️ Detenido; Adquisiciones ya fue avisada y lo está resolviendo."
     return texto
 
 
@@ -93,7 +93,7 @@ def atender(cur, mensaje: dict, api) -> str:
         contenido = api.descargar(doc["file_id"])
         resultado, codigos = procesar_factura(cur, contenido, doc["file_name"], m.group(0), quien["correo"])
         if resultado == "VALIDA":
-            return f"✅ Factura validada para la {m.group(0).upper()}. Siguiente paso: entrega del bien en Almacén."
+            return f"✅ Factura validada para la {m.group(0).upper()}. Siguiente paso: entrega del material en Almacén."
         return f"❌ Factura rechazada ({', '.join(codigos)}). En un momento te llega el detalle de qué corregir."
 
     m = PATRON_FOLIO.search(texto)

@@ -1,4 +1,4 @@
-"""Poner avisos en la cola. El robot R5 (notificador.py) es quien los envía.
+"""Poner avisos en la cola. El robot R7 (notificador.py) es quien los envía.
 
 Canales: CORREO (siempre) y TELEGRAM (solo si la persona ya se vinculó con el bot de Logix).
 """

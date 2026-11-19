@@ -1,14 +1,14 @@
-"""Robot R3 · Recibe facturas, las valida contra la OC y decide si avanza o se detiene.
+"""Robot R2 · Recibe facturas, las valida contra la OC y decide si avanza o se detiene.
 
-Flujo (paso 9 del instructivo, sin captura humana):
+Flujo (sin captura humana):
   1. El proveedor manda el XML (y PDF) con el folio de la OC en el asunto.
   2. Logix lee el CFDI y aplica las reglas de validacion.py.
   3a. Si todo cuadra: guarda la factura, la OC pasa a FACTURA_VALIDADA y avisa
-      al proveedor (acuse) y a Almacén (ya puede recibir el bien).
+      al proveedor (acuse) y a Almacén (ya puede recibir el material).
   3b. Si algo no cuadra: guarda la factura como RECHAZADA, abre una excepción
       para Adquisiciones y le explica al proveedor exactamente qué corregir.
 
-Los avisos solo se ponen en la cola (tabla notificaciones); el robot R5 los envía.
+Los avisos solo se ponen en la cola (tabla notificaciones); el robot R7 los envía.
 """
 import email
 import imaplib
@@ -22,7 +22,7 @@ from . import avisos, config, db
 from .cfdi import CfdiInvalido, leer_cfdi
 from .validacion import OrdenParaValidar, validar_factura
 
-ACTOR = "ROBOT-R3"
+ACTOR = "ROBOT-R2"
 PATRON_OC = re.compile(r"OC-\d{4}-\d{4}", re.IGNORECASE)
 
 
@@ -93,11 +93,11 @@ def procesar_factura(cur, contenido: bytes, nombre_archivo: str, folio_oc: str |
         db.bitacora(cur, ACTOR, "OC", oc_id, "CAMBIO_ESTATUS", oc.estatus, "FACTURA_VALIDADA")
         acuse = (f"Hola, {oc.nombre_proveedor}. Recibimos y validamos su factura {factura.serie_folio} "
                  f"(folio fiscal {factura.uuid}) por ${factura.total:,.2f} para la OC {oc.folio}. "
-                 f"Siguiente paso: entrega del bien en Almacén. Consulte su avance con el folio {oc.folio}.")
+                 f"Siguiente paso: entrega del material en Almacén. Consulte su avance con el folio {oc.folio}.")
         avisos.a_proveedor(cur, prov_id, f"Factura validada · {oc.folio}", acuse, destino_proveedor)
         _avisar_rol(cur, "ALMACEN", f"Factura validada · {oc.folio}",
                     f"La factura de la OC {oc.folio} ({oc.nombre_proveedor}) ya fue validada. "
-                    "Cuando llegue el bien, confirme la recepción en Logix.")
+                    "Cuando llegue el material, revíselo y confirme la recepción en Logix.")
     else:
         for h in hallazgos:
             cur.execute("INSERT INTO excepciones (oc_id, tipo, detalle) VALUES (?, ?, ?)",

@@ -1,62 +1,63 @@
-"""Recepción del bien (pasos 9 y 10 del instructivo).
+"""Recepción en almacén · confirmar que el material llegó.
 
 Lo único que hace una persona aquí es lo que ningún software puede hacer:
-  - Almacén revisa el bien FÍSICO y confirma con un clic (y marca si recibió la hoja de seguridad).
-  - El área solicitante firma de recibido y califica al proveedor (1 a 5).
-Logix hace lo demás: genera la entrada y la salida simultáneas y, con la firma del área,
-arma el expediente (R4) y lo manda a las firmas de pago.
+revisar el material FÍSICO. Almacén tiene dos botones:
+  - «Llegó completo»: Logix genera la entrada y la salida y, en ese mismo momento,
+    el robot R3 arma el expediente y lo manda a Recursos Financieros.
+  - «Reportar problema» (llegó incompleto, dañado o diferente): Logix abre una
+    excepción y avisa a Adquisiciones para que lo arregle con el proveedor.
 """
 from . import avisos, db, expediente
 from .errores import ReglaNegocio
 
 
 def por_recibir(cur) -> list[dict]:
-    cur.execute("""SELECT oc.id, oc.folio, p.razon_social AS proveedor, oc.total, oc.fecha
+    """Órdenes con factura ya validada: el proveedor puede entregar."""
+    cur.execute("""SELECT oc.id, oc.folio, p.razon_social AS proveedor, oc.area_solicitante, oc.total, oc.fecha
                    FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
                    WHERE oc.estatus = 'FACTURA_VALIDADA' ORDER BY oc.fecha""")
     return db.filas(cur)
 
 
-def confirmar_recepcion(cur, usuario: dict, oc_id: int, fds_entregada: bool) -> tuple[str, str]:
+def _folio_lista(cur, oc_id: int) -> str:
     cur.execute("SELECT folio, estatus FROM ordenes_compra WHERE id = ?", oc_id)
-    folio, estatus = cur.fetchone()
+    fila = cur.fetchone()
+    if not fila:
+        raise ReglaNegocio("La orden de compra no existe.")
+    folio, estatus = fila
     if estatus != "FACTURA_VALIDADA":
         raise ReglaNegocio(f"La OC {folio} no está lista para recibirse (estatus {estatus}). "
-                           "Primero debe validarse la factura.")
+                           "Primero debe validarse la factura del proveedor.")
+    return folio
+
+
+def confirmar_recepcion(cur, usuario: dict, oc_id: int, fds_entregada: bool = False,
+                        observaciones: str = "") -> tuple[str, str]:
+    """El material llegó completo: entrada y salida automáticas y expediente a Finanzas."""
+    folio = _folio_lista(cur, oc_id)
     cur.execute("SELECT COUNT(*) FROM recepciones")
     n = cur.fetchone()[0] + 1
-    entrada, salida = f"ENT-{n:05d}", f"SAL-{n:05d}"      # entrada y salida simultánea (paso 10)
-    cur.execute("INSERT INTO recepciones (oc_id, almacen_id, folio_entrada, folio_salida, fds_entregada) "
-                "VALUES (?, ?, ?, ?, ?)", oc_id, usuario["id"], entrada, salida, int(fds_entregada))
-    cur.execute("UPDATE ordenes_compra SET estatus = 'RECIBIDA' WHERE id = ?", oc_id)
-    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "RECIBE_BIEN", "FACTURA_VALIDADA", "RECIBIDA",
+    entrada, salida = f"ENT-{n:05d}", f"SAL-{n:05d}"      # entrada y salida simultánea
+    cur.execute("INSERT INTO recepciones (oc_id, almacen_id, folio_entrada, folio_salida, fds_entregada, "
+                "observaciones) VALUES (?, ?, ?, ?, ?, ?)", oc_id, usuario["id"], entrada, salida,
+                int(fds_entregada), (observaciones or "").strip()[:500] or None)
+    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "RECIBE_MATERIAL", "FACTURA_VALIDADA", "RECIBIDA",
                 f"{entrada}/{salida} FDS={'sí' if fds_entregada else 'no'}")
-    cur.execute("""SELECT DISTINCT r.area_id FROM oc_requisiciones x JOIN requisiciones r ON r.id = x.requisicion_id
-                   WHERE x.oc_id = ?""", oc_id)
-    for (area_id,) in cur.fetchall():
-        for rol in ("SOLICITANTE", "JEFE_AREA"):
-            avisos.a_rol(cur, rol, f"Su material llegó · {folio}",
-                         f"Almacén recibió el material de la OC {folio}. Al recogerlo, firme de recibido en Logix.",
-                         area_id)
+    avisos.a_rol(cur, "ADQUISICIONES", f"Material recibido · {folio}",
+                 f"Almacén confirmó que llegó el material de la OC {folio} (entrada {entrada}).")
+    # Robot R3: arma el expediente y lo manda a Recursos Financieros.
+    expediente.armar_y_enviar(cur, oc_id)
     return entrada, salida
 
 
-def por_firmar_area(cur, usuario: dict) -> list[dict]:
-    cur.execute("""SELECT DISTINCT oc.id, oc.folio, p.razon_social AS proveedor, oc.total, rc.fecha_recepcion
-                   FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
-                   JOIN recepciones rc ON rc.oc_id = oc.id
-                   JOIN oc_requisiciones x ON x.oc_id = oc.id JOIN requisiciones r ON r.id = x.requisicion_id
-                   WHERE oc.estatus = 'RECIBIDA' AND rc.firma_area_id IS NULL AND r.area_id = ?""",
-                usuario["area_id"])
-    return db.filas(cur)
-
-
-def firmar_recibido(cur, usuario: dict, oc_id: int, calificacion: int):
-    if calificacion not in (1, 2, 3, 4, 5):
-        raise ReglaNegocio("Califique al proveedor del 1 al 5.")
-    if oc_id not in [f["id"] for f in por_firmar_area(cur, usuario)]:
-        raise ReglaNegocio("Esta OC no tiene una recepción pendiente de firma para su área.")
-    cur.execute("UPDATE recepciones SET firma_area_id = ?, fecha_firma_area = SYSDATETIME(), calificacion = ? "
-                "WHERE oc_id = ?", usuario["id"], calificacion, oc_id)
-    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "FIRMA_RECIBIDO", nuevo=f"calificación {calificacion}")
-    expediente.armar(cur, oc_id, usuario["usuario"])
+def reportar_problema(cur, usuario: dict, oc_id: int, detalle: str):
+    """El material llegó incompleto, dañado o diferente a la OC."""
+    if not detalle or len(detalle.strip()) < 5:
+        raise ReglaNegocio("Describa el problema (qué falta o qué llegó mal).")
+    folio = _folio_lista(cur, oc_id)
+    cur.execute("INSERT INTO excepciones (oc_id, tipo, detalle) VALUES (?, 'RECEPCION_CON_PROBLEMA', ?)",
+                oc_id, detalle.strip())
+    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "REPORTA_PROBLEMA_RECEPCION", detalle=detalle.strip())
+    avisos.a_rol(cur, "ADQUISICIONES", f"Problema en la entrega · {folio}",
+                 f"Almacén reportó un problema con el material de la OC {folio}: {detalle.strip()}. "
+                 "Arréglelo con el proveedor; cuando llegue bien, Almacén confirmará la recepción.")

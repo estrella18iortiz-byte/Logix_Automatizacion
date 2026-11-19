@@ -1,6 +1,6 @@
 """Genera facturas CFDI 4.0 de PRUEBA (datos simulados, sin sello ni validez fiscal).
 
-Sirven para probar el robot R3 con casos buenos y malos sin usar facturas reales.
+Sirven para probar el robot R2 con casos buenos y malos sin usar facturas reales.
 """
 import uuid as uuidlib
 from datetime import datetime

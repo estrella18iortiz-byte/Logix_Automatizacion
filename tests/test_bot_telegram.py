@@ -1,4 +1,4 @@
-"""Pruebas del bot de Telegram (R7) con un Telegram FALSO: no necesitan internet ni token.
+"""Pruebas del bot de Telegram (R8) con un Telegram FALSO: no necesitan internet ni token.
 Usan la base logix_db (corre antes generar_datos.py). Todo se deshace al final (rollback).
 
     python -m unittest tests.test_bot_telegram -v
@@ -12,7 +12,7 @@ from logix import compras, config
 from logix.bot_telegram import atender
 from logix.cfdi_simulado import generar_xml
 
-CHAT_PROVEEDOR, CHAT_JEFE, CHAT_DESCONOCIDO = 111, 222, 999
+CHAT_PROVEEDOR, CHAT_ADQ, CHAT_DESCONOCIDO = 111, 222, 999
 
 
 class TelegramFalso:
@@ -40,8 +40,8 @@ class BotTelegram(unittest.TestCase):
         self.api = TelegramFalso()
         self.cur.execute("SELECT codigo_telegram FROM proveedores WHERE rfc = 'PDA010101AA1'")
         self.cod_prov = self.cur.fetchone()[0]
-        self.cur.execute("SELECT codigo_telegram FROM usuarios WHERE usuario = 'jefe.area'")
-        self.cod_jefe = self.cur.fetchone()[0]
+        self.cur.execute("SELECT codigo_telegram FROM usuarios WHERE usuario = 'adquisiciones'")
+        self.cod_adq = self.cur.fetchone()[0]
 
     def tearDown(self):
         self.con.rollback()
@@ -63,8 +63,8 @@ class BotTelegram(unittest.TestCase):
         self.assertIn("no es válido", self.decir(msg(CHAT_DESCONOCIDO, f"/vincular {self.cod_prov}")))
 
     def test_consulta_de_folio(self):
-        self.decir(msg(CHAT_JEFE, f"/vincular {self.cod_jefe}"))
-        r = self.decir(msg(CHAT_JEFE, "¿cómo va la OC-2026-0002?"))
+        self.decir(msg(CHAT_ADQ, f"/vincular {self.cod_adq}"))
+        r = self.decir(msg(CHAT_ADQ, "¿cómo va la OC-2026-0002?"))
         self.assertIn("OC-2026-0002", r)
         self.assertIn("Esperando factura", r)
 
@@ -94,12 +94,12 @@ class BotTelegram(unittest.TestCase):
         self.assertIn("XML", r)
 
     def test_avisos_van_al_chat_vinculado(self):
-        self.decir(msg(CHAT_JEFE, f"/vincular {self.cod_jefe}"))
+        self.decir(msg(CHAT_ADQ, f"/vincular {self.cod_adq}"))
         from logix import avisos
-        self.cur.execute("SELECT id FROM usuarios WHERE usuario = 'jefe.area'")
+        self.cur.execute("SELECT id FROM usuarios WHERE usuario = 'adquisiciones'")
         avisos.a_usuario(self.cur, self.cur.fetchone()[0], "Prueba", "Hola")
         self.cur.execute("SELECT COUNT(*) FROM notificaciones WHERE canal = 'TELEGRAM' AND destinatario = ?",
-                         str(CHAT_JEFE))
+                         str(CHAT_ADQ))
         self.assertEqual(self.cur.fetchone()[0], 1)
 
 

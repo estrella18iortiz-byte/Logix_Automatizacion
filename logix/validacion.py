@@ -1,4 +1,4 @@
-"""Robot R3 · Reglas para aceptar o rechazar una factura.
+"""Robot R2 · Reglas para aceptar o rechazar una factura.
 
 Son reglas deterministas (siempre dan el mismo resultado con los mismos datos),
 para que el resultado sea predecible y auditable. La política es ESTRICTA:

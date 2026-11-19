@@ -3,8 +3,8 @@
     python generar_datos.py
 
 1. Corre sql/01_esquema.sql (borra y crea logix_db).
-2. Carga parámetros, áreas, usuarios, partidas, conceptos, proveedores y la lista 69-B simulada.
-3. Crea 3 requisiciones ya firmadas con su OC «esperando factura».
+2. Carga parámetros, áreas, usuarios, proveedores y la lista 69-B simulada.
+3. Crea 3 compras YA aprobadas, con su OC enviada al proveedor y «esperando factura».
 4. Fabrica facturas XML de prueba (buenas y malas) en datos_prueba/facturas/.
 
 Todos los nombres, RFC e importes son ficticios (regla de la guía: no usar datos reales).
@@ -30,70 +30,45 @@ RFC_INSTITUCION = "ITM990101AB1"      # simulado
 
 PARAMETROS = [
     ("RFC_INSTITUCION", RFC_INSTITUCION, "RFC al que deben emitirse las facturas (simulado)"),
-    ("FECHA_LIMITE_PAGOS", f"{date.today().year}-12-11", "Último día para pagar con el presupuesto del ejercicio"),
+    # Confirmado con la Jefa de Adquisiciones: a mediados de diciembre (15 o 16).
+    ("FECHA_LIMITE_PAGOS", f"{date.today().year}-12-15", "Último día para pagar con el presupuesto del ejercicio"),
     ("DIAS_SEMAFORO_ROJO", "15", "Días antes del cierre para marcar en rojo"),
     ("DIAS_SEMAFORO_AMARILLO", "30", "Días antes del cierre para marcar en amarillo"),
-    ("HORAS_RECORDATORIO", "24", "Horas sin firmar para mandar recordatorio"),
-    ("HORAS_ESCALAMIENTO", "48", "Horas sin firmar para avisar al jefe inmediato"),
-    ("UMBRAL_COTIZACIONES", "300000", "Monto a partir del cual se exigen cotizaciones"),
-    ("PUNTAJE_MINIMO", "70", "Puntaje mínimo de evaluación del proveedor (001-02)"),
+    ("HORAS_RECORDATORIO_FINANZAS", "48", "Horas con un expediente en Finanzas sin fecha de pago para recordar"),
+    ("HORAS_RECORDATORIO_ADQUISICIONES", "24", "Horas con un expediente devuelto sin corregir para recordar"),
 ]
 
 AREAS = ["Departamento de Sistemas y Computación", "Departamento de Ciencias Básicas",
-         "Planeación y Presupuestos", "Subdirección Académica", "Dirección",
-         "Recursos Materiales y Servicios", "Subdirección de Servicios Administrativos",
-         "Recursos Financieros"]
+         "Recursos Materiales y Servicios", "Recursos Financieros"]
 
 # (usuario, nombre simulado, rol, área)
 USUARIOS = [
-    ("solicitante", "Ana Demo Solicitante", "SOLICITANTE", "Departamento de Sistemas y Computación"),
-    ("jefe.area", "Luis Demo Jefe de Área", "JEFE_AREA", "Departamento de Sistemas y Computación"),
-    ("presupuestos", "Marta Demo Presupuestos", "PRESUPUESTOS", "Planeación y Presupuestos"),
-    ("subdirector", "Jorge Demo Subdirector", "SUBDIRECTOR", "Subdirección Académica"),
-    ("director", "Elena Demo Directora", "DIRECTOR", "Dirección"),
     ("adquisiciones", "Patricia Demo Adquisiciones", "ADQUISICIONES", "Recursos Materiales y Servicios"),
-    ("jefe.rm", "Raúl Demo Jefe RM", "JEFE_RM", "Recursos Materiales y Servicios"),
-    ("subdir.admin", "Sofía Demo Subdirectora Adm.", "SUBDIR_ADMIN", "Subdirección de Servicios Administrativos"),
     ("almacen", "Luis Alberto Demo Almacén", "ALMACEN", "Recursos Materiales y Servicios"),
     ("finanzas", "Gabriela Demo Finanzas", "FINANZAS", "Recursos Financieros"),
     ("admin", "Administrador Logix", "ADMIN", None),
 ]
 
-PARTIDAS = [("21101", "Materiales y útiles de oficina", 50000),
-            ("21401", "Materiales y útiles para tecnologías de la información", 60000),
-            ("24601", "Material eléctrico y electrónico", 20000)]
-
-# (descripción, unidad, partida, precio de referencia con IVA)
-CONCEPTOS = [("Plumones para pizarrón blanco (caja con 4)", "Caja", "21101", 95),
-             ("Hojas blancas tamaño carta (paquete 500)", "Paquete", "21101", 120),
-             ("Mouse óptico USB", "Pieza", "21401", 150),
-             ("Tóner para impresora láser", "Pieza", "21401", 1450),
-             ("Cable HDMI 2 m", "Pieza", "21401", 180),
-             ("Foco LED 9 W", "Pieza", "24601", 45)]
-
-hoy = date.today()
-# (razón social, RFC, puntaje selección, puntaje evaluación, fecha evaluación)
+# (razón social, RFC)
 PROVEEDORES = [
-    ("Papelería Demo del Altiplano S.A. de C.V.", "PDA010101AA1", 85, 88, hoy - timedelta(days=200)),
-    ("Cómputo Demo S.A. de C.V.", "CDE020202BB2", 90, 91, hoy - timedelta(days=120)),
-    ("Comercial Demo S.A. de C.V.", "COD030303CC3", 75, 62, hoy - timedelta(days=90)),      # no apto (62)
-    ("Eléctrica Demo S.A. de C.V.", "ELD040404DD4", 80, 85, hoy - timedelta(days=400)),     # evaluación vencida
-    ("Distribuidora Fantasma S.A. de C.V.", "DFA050505EE5", 78, 80, hoy - timedelta(days=60)),  # en lista 69-B
+    ("Papelería Demo del Altiplano S.A. de C.V.", "PDA010101AA1"),
+    ("Cómputo Demo S.A. de C.V.", "CDE020202BB2"),
+    ("Comercial Demo S.A. de C.V.", "COD030303CC3"),
+    ("Eléctrica Demo S.A. de C.V.", "ELD040404DD4"),
+    ("Distribuidora Fantasma S.A. de C.V.", "DFA050505EE5"),      # en lista 69-B (para probar el rechazo)
 ]
 LISTA_69B = [("DFA050505EE5", "Definitivo")]
 
-FLUJOS = [("REQ", 1, "JEFE_AREA"), ("REQ", 2, "PRESUPUESTOS"), ("REQ", 3, "SUBDIRECTOR"), ("REQ", 4, "DIRECTOR"),
-          ("OC", 1, "ADQUISICIONES"), ("OC", 2, "JEFE_RM"), ("OC", 3, "SUBDIR_ADMIN"),
-          ("PAGO", 1, "ADQUISICIONES"), ("PAGO", 2, "JEFE_RM"), ("PAGO", 3, "SUBDIR_ADMIN")]
-
-# Compras ya firmadas, con OC esperando factura: (folio REQ, folio OC, RFC proveedor, [(concepto, cantidad)])
+# Compras ya aprobadas, con OC esperando factura:
+# (folio OC, RFC proveedor, área solicitante, [(descripción, unidad, cantidad, precio con IVA)])
 COMPRAS = [
-    ("REQ-2026-0001", "OC-2026-0001", "PDA010101AA1",
-     [("Plumones para pizarrón blanco (caja con 4)", 10), ("Hojas blancas tamaño carta (paquete 500)", 5)]),
-    ("REQ-2026-0002", "OC-2026-0002", "CDE020202BB2",
-     [("Mouse óptico USB", 2), ("Tóner para impresora láser", 1)]),
-    ("REQ-2026-0003", "OC-2026-0003", "DFA050505EE5",
-     [("Cable HDMI 2 m", 3)]),
+    ("OC-2026-0001", "PDA010101AA1", "Departamento de Sistemas y Computación",
+     [("Plumones para pizarrón blanco (caja con 4)", "Caja", 10, 95),
+      ("Hojas blancas tamaño carta (paquete 500)", "Paquete", 5, 120)]),
+    ("OC-2026-0002", "CDE020202BB2", "Departamento de Sistemas y Computación",
+     [("Mouse óptico USB", "Pieza", 2, 150), ("Tóner para impresora láser", "Pieza", 1, 1450)]),
+    ("OC-2026-0003", "DFA050505EE5", "Departamento de Ciencias Básicas",
+     [("Cable HDMI 2 m", "Pieza", 3, 180)]),
 ]
 
 
@@ -142,67 +117,42 @@ def cargar_catalogos(cur):
         cur.execute("INSERT INTO usuarios (nombre, usuario, hash_password, sal, rol, area_id, codigo_telegram) "
                     "VALUES (?, ?, ?, ?, ?, (SELECT id FROM areas WHERE nombre = ?), ?)",
                     nombre, usuario, h, sal, rol, area, codigo_telegram())
-    cur.executemany("INSERT INTO partidas (clave, descripcion, saldo) VALUES (?, ?, ?)", PARTIDAS)
-    for desc, unidad, partida, precio in CONCEPTOS:
-        cur.execute("INSERT INTO conceptos (descripcion, unidad, partida_id, precio_referencia) "
-                    "VALUES (?, ?, (SELECT id FROM partidas WHERE clave = ?), ?)", desc, unidad, partida, precio)
-    for razon, rfc, sel, ev, fecha in PROVEEDORES:
+    for razon, rfc in PROVEEDORES:
         correo = f"facturacion@{rfc.lower()}.demo"
-        cur.execute("INSERT INTO proveedores (razon_social, rfc, correo, puntaje_seleccion, puntaje_evaluacion, "
-                    "fecha_evaluacion, codigo_telegram) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    razon, rfc, correo, sel, ev, fecha, codigo_telegram())
+        cur.execute("INSERT INTO proveedores (razon_social, rfc, correo, codigo_telegram) VALUES (?, ?, ?, ?)",
+                    razon, rfc, correo, codigo_telegram())
     cur.executemany("INSERT INTO sat_lista_69b VALUES (?, ?)", LISTA_69B)
-    cur.executemany("INSERT INTO flujos_aprobacion VALUES (?, ?, ?)", FLUJOS)
 
 
 def crear_compras(cur) -> dict:
-    """Crea requisiciones firmadas y su OC esperando factura. Regresa {folio_oc: datos}."""
-    print("3/4  Creando requisiciones y órdenes de compra ...")
+    """Crea compras ya aprobadas con su OC esperando factura. Regresa {folio_oc: datos}."""
+    print("3/4  Creando órdenes de compra ya aprobadas ...")
     ocs = {}
-    cur.execute("SELECT id, area_id FROM usuarios WHERE usuario = 'solicitante'")
-    sol_id, area_id = cur.fetchone()
-    hace = datetime.now() - timedelta(days=6)
-    for folio_req, folio_oc, rfc, lineas in COMPRAS:
-        cur.execute("INSERT INTO requisiciones (folio, area_id, solicitante_id, justificacion, estatus, fecha) "
-                    "OUTPUT INSERTED.id VALUES (?, ?, ?, ?, 'EN_OC', ?)",
-                    folio_req, area_id, sol_id, "Material para el semestre (dato simulado)", hace)
-        req_id = cur.fetchone()[0]
-        total = Decimal("0")
-        detalle = []
-        for concepto, cant in lineas:
-            cur.execute("SELECT id, precio_referencia FROM conceptos WHERE descripcion = ?", concepto)
-            c_id, precio = cur.fetchone()
-            cur.execute("INSERT INTO requisicion_detalle (requisicion_id, concepto_id, cantidad, precio_unitario) "
-                        "VALUES (?, ?, ?, ?)", req_id, c_id, cant, precio)
-            total += Decimal(cant) * Decimal(precio)
-            detalle.append((concepto, Decimal(cant), Decimal(precio)))
-        cur.execute("UPDATE requisiciones SET total = ? WHERE id = ?", total, req_id)
-
+    cur.execute("SELECT id FROM usuarios WHERE usuario = 'adquisiciones'")
+    adq_id = cur.fetchone()[0]
+    hace = datetime.now() - timedelta(days=4)
+    for folio_oc, rfc, area, lineas in COMPRAS:
         cur.execute("SELECT id, razon_social FROM proveedores WHERE rfc = ?", rfc)
         prov_id, razon = cur.fetchone()
-        cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, total, estatus, fecha) "
-                    "OUTPUT INSERTED.id VALUES (?, ?, ?, 'ESPERANDO_FACTURA', ?)",
-                    folio_oc, prov_id, total, hace + timedelta(days=2))
+        total = sum(Decimal(c) * Decimal(p) for _, _, c, p in lineas)
+        cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, area_solicitante, total, estatus, fecha, "
+                    "registrada_por) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, 'ESPERANDO_FACTURA', ?, ?)",
+                    folio_oc, prov_id, area, total, hace, adq_id)
         oc_id = cur.fetchone()[0]
-        cur.execute("INSERT INTO oc_requisiciones VALUES (?, ?)", oc_id, req_id)
-
-        # Firmas ya completas (se crearon «en el pasado» para la demo).
-        for tipo, ref in (("REQ", req_id), ("OC", oc_id)):
-            cur.execute("SELECT nivel, rol FROM flujos_aprobacion WHERE tipo = ? ORDER BY nivel", tipo)
-            for nivel, rol in cur.fetchall():
-                cur.execute("INSERT INTO aprobaciones (tipo, referencia_id, nivel, rol, estatus, usuario_id, "
-                            "fecha_asignacion, fecha_respuesta) VALUES (?, ?, ?, ?, 'APROBADA', "
-                            "(SELECT TOP 1 id FROM usuarios WHERE rol = ?), ?, ?)",
-                            tipo, ref, nivel, rol, rol, hace, hace + timedelta(hours=nivel * 3))
-        cur.execute("INSERT INTO bitacora (actor, entidad, entidad_id, accion, valor_nuevo, detalle) "
-                    "VALUES ('GENERADOR', 'OC', ?, 'DATOS_SIMULADOS', 'ESPERANDO_FACTURA', ?)",
-                    oc_id, f"{folio_oc} creada para pruebas")
+        detalle = []
+        for desc, unidad, cant, precio in lineas:
+            cur.execute("INSERT INTO oc_detalle (oc_id, descripcion, unidad, cantidad, precio_unitario) "
+                        "VALUES (?, ?, ?, ?, ?)", oc_id, desc, unidad, cant, precio)
+            detalle.append((desc, Decimal(cant), Decimal(precio)))
+        cur.execute("INSERT INTO bitacora (fecha, actor, entidad, entidad_id, accion, valor_nuevo, detalle) "
+                    "VALUES (?, 'GENERADOR', 'OC', ?, 'DATOS_SIMULADOS', 'ESPERANDO_FACTURA', ?)",
+                    hace, oc_id, f"{folio_oc} registrada para pruebas (compra ya aprobada)")
         ocs[folio_oc] = {"rfc": rfc, "razon": razon, "total": total, "detalle": detalle}
     return ocs
 
 
 def fabricar_facturas(ocs: dict):
-    """Facturas de prueba: una por cada caso que el robot R3 debe detectar."""
+    """Facturas de prueba: una por cada caso que el robot R2 debe detectar."""
     print("4/4  Fabricando facturas XML de prueba ...")
     carpeta = RAIZ / "datos_prueba" / "facturas"
     carpeta.mkdir(parents=True, exist_ok=True)

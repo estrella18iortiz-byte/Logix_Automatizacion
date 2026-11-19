@@ -8,10 +8,9 @@ A las rojas les manda alerta a Adquisiciones y a Finanzas (una vez al día, no m
 """
 from datetime import date, datetime
 
-from . import avisos, db
+from . import avisos, consultas, db
 
-ABIERTAS = ("EN_FIRMAS", "ESPERANDO_FACTURA", "FACTURA_VALIDADA", "RECIBIDA", "EN_FIRMAS_PAGO",
-            "EN_FINANZAS", "DETENIDA")
+ABIERTAS = ("ESPERANDO_FACTURA", "FACTURA_VALIDADA", "EN_FINANZAS", "DEVUELTA", "DETENIDA")
 
 
 def semaforo_de(dias: int, rojo: int, amarillo: int) -> str:
@@ -48,7 +47,8 @@ def revisar(cur, hoy: date | None = None) -> int:
                     "AND accion = 'ALERTA_CIERRE' AND CAST(fecha AS DATE) = CAST(SYSDATETIME() AS DATE)", f["id"])
         if cur.fetchone()[0]:
             continue                                   # ya se avisó hoy
-        texto = (f"🔴 La compra {f['folio']} ({f['proveedor']}, ${f['total']:,.2f}) sigue en «{f['estatus']}» "
+        estatus = consultas.ESTATUS_LEGIBLE.get(f["estatus"], f["estatus"])
+        texto = (f"🔴 La compra {f['folio']} ({f['proveedor']}, ${f['total']:,.2f}) sigue en «{estatus}» "
                  f"y faltan {f['dias']} días para la fecha límite de pagos del ejercicio.")
         for rol in ("ADQUISICIONES", "FINANZAS"):
             avisos.a_rol(cur, rol, f"Riesgo de cierre de ejercicio · {f['folio']}", texto)

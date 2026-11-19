@@ -1,4 +1,4 @@
-"""Casos de prueba de punta a punta (E4): de la requisición al pago, con datos simulados.
+"""Casos de prueba de punta a punta (E4): de la compra ya aprobada al pago, con datos simulados.
 
     python probar_flujo_completo.py
 
@@ -8,12 +8,10 @@ resultados/resultados_pruebas.csv (id, criterio de aceptación, resultado y tiem
 import csv
 import time
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 from pathlib import Path
 
 import generar_datos
-from logix import (compras, config, consultas, db, firmas, notificador, pagos, recepcion,
-                   requisiciones, usuarios, vigilante)
+from logix import compras, config, consultas, db, notificador, pagos, recepcion, usuarios, vigilante
 from logix.cfdi_simulado import generar_xml
 from logix.errores import ReglaNegocio
 from logix.robot_facturas import procesar_factura
@@ -54,183 +52,145 @@ def u(cur, nombre):
     return usuarios.iniciar_sesion(cur, nombre, generar_datos.PASSWORD_DEMO)
 
 
-def concepto(cur, texto):
-    cur.execute("SELECT id, precio_referencia FROM conceptos WHERE descripcion LIKE ?", f"%{texto}%")
-    return cur.fetchone()
+def avisos_con(cur, asunto: str) -> int:
+    cur.execute("SELECT COUNT(*) FROM notificaciones WHERE asunto LIKE ?", asunto + "%")
+    return cur.fetchone()[0]
 
 
-def firmar_todo(cur, tipo, ref_id):
-    """Firma cada nivel con el usuario del rol que toca."""
-    while True:
-        cur.execute("SELECT id, rol FROM aprobaciones WHERE tipo = ? AND referencia_id = ? AND estatus = 'PENDIENTE'",
-                    tipo, ref_id)
-        fila = cur.fetchone()
-        if not fila:
-            return
-        cur.execute("SELECT TOP 1 usuario FROM usuarios WHERE rol = ?", fila[1])
-        firmas.aprobar(cur, u(cur, cur.fetchone()[0]), fila[0])
+def estatus(cur, oc_id) -> str:
+    cur.execute("SELECT estatus FROM ordenes_compra WHERE id = ?", oc_id)
+    return cur.fetchone()[0]
 
 
 # ----------------------------------------------------------------------- casos
 @caso("CP-01", "CA-15", "Inicio de sesión: correcto, contraseña errónea y bloqueo tras 5 intentos")
 def cp01(cur, ctx):
-    assert u(cur, "solicitante")["rol"] == "SOLICITANTE"
+    assert u(cur, "adquisiciones")["rol"] == "ADQUISICIONES"
     for _ in range(5):
-        debe_fallar(lambda: usuarios.iniciar_sesion(cur, "director", "mala"), "incorrectos")
-    debe_fallar(lambda: usuarios.iniciar_sesion(cur, "director", generar_datos.PASSWORD_DEMO), "bloqueado")
-    cur.execute("UPDATE usuarios SET intentos_fallidos = 0 WHERE usuario = 'director'")
+        debe_fallar(lambda: usuarios.iniciar_sesion(cur, "finanzas", "mala"), "incorrectos")
+    debe_fallar(lambda: usuarios.iniciar_sesion(cur, "finanzas", generar_datos.PASSWORD_DEMO), "bloqueado")
+    cur.execute("UPDATE usuarios SET intentos_fallidos = 0 WHERE usuario = 'finanzas'")
 
 
-@caso("CP-02", "CA-01", "Requisición con monto mayor al saldo de la partida se bloquea")
+@caso("CP-02", "CA-03", "Registrar compra sin renglones o con cantidad 0 se bloquea con explicación")
 def cp02(cur, ctx):
-    toner, precio = concepto(cur, "Tóner")
-    debe_fallar(lambda: requisiciones.crear(cur, u(cur, "solicitante"), "Tóner para todo el año escolar",
-                                            [(toner, Decimal(100), precio)]), "saldo insuficiente")
-
-
-@caso("CP-03", "CA-01", "Precio 30 % arriba de la referencia se bloquea con explicación")
-def cp03(cur, ctx):
-    mouse, precio = concepto(cur, "Mouse")
-    debe_fallar(lambda: requisiciones.crear(cur, u(cur, "solicitante"), "Mouse para el laboratorio de redes",
-                                            [(mouse, Decimal(2), precio * Decimal("1.5"))]), "30 %")
-
-
-@caso("CP-04", "CA-02", "Requisición correcta: folio, partida automática y turno al Jefe de su área")
-def cp04(cur, ctx):
-    mouse, p1 = concepto(cur, "Mouse")
-    hdmi, p2 = concepto(cur, "HDMI")
-    folio = requisiciones.crear(cur, u(cur, "solicitante"), "Equipo para el laboratorio de redes",
-                                [(mouse, Decimal(10), p1), (hdmi, Decimal(5), p2)])
-    cur.execute("SELECT id, estatus FROM requisiciones WHERE folio = ?", folio)
-    ctx["req"], estatus = cur.fetchone()
-    assert estatus == "EN_FIRMAS"
-    pend = firmas.pendientes_de(cur, u(cur, "jefe.area"))
-    assert any(p["folio"] == folio for p in pend), "no le llegó al Jefe de área"
-    ctx["folio_req"] = folio
-
-
-@caso("CP-05", "CA-02", "No se pueden saltar niveles ni firmar por otro rol")
-def cp05(cur, ctx):
-    cur.execute("SELECT id FROM aprobaciones WHERE tipo='REQ' AND referencia_id=? AND nivel=2", ctx["req"])
-    nivel2 = cur.fetchone()[0]
-    debe_fallar(lambda: firmas.aprobar(cur, u(cur, "presupuestos"), nivel2), "no está pendiente")
-    cur.execute("SELECT id FROM aprobaciones WHERE tipo='REQ' AND referencia_id=? AND nivel=1", ctx["req"])
-    nivel1 = cur.fetchone()[0]
-    debe_fallar(lambda: firmas.aprobar(cur, u(cur, "director"), nivel1), "corresponde al rol")
-
-
-@caso("CP-06", "CA-02", "Devolver exige motivo; la corrección reinicia las firmas y queda en bitácora")
-def cp06(cur, ctx):
-    cur.execute("SELECT id FROM aprobaciones WHERE tipo='REQ' AND referencia_id=? AND estatus='PENDIENTE'", ctx["req"])
-    aid = cur.fetchone()[0]
-    jefe = u(cur, "jefe.area")
-    debe_fallar(lambda: firmas.devolver(cur, jefe, aid, ""), "motivo")
-    firmas.devolver(cur, jefe, aid, "Bajar a 8 mouse, ya hay 2 en almacén")
-    cur.execute("SELECT estatus FROM requisiciones WHERE id = ?", ctx["req"])
-    assert cur.fetchone()[0] == "EN_CORRECCION"
-    det = requisiciones.detalle(cur, ctx["req"])
-    mouse = next(d for d in det if "Mouse" in d["descripcion"])
-    requisiciones.corregir_y_reenviar(cur, u(cur, "solicitante"), ctx["req"],
-                                      {mouse["id"]: (Decimal(8), mouse["precio_unitario"])})
-    cur.execute("SELECT estatus FROM requisiciones WHERE id = ?", ctx["req"])
-    assert cur.fetchone()[0] == "EN_FIRMAS"
-    cur.execute("SELECT COUNT(*) FROM bitacora WHERE entidad='REQ' AND entidad_id=? AND accion='CORRIGE'", ctx["req"])
-    assert cur.fetchone()[0] == 1
-
-
-@caso("CP-07", "CA-02", "Las 4 firmas validan la requisición y comprometen el saldo de la partida")
-def cp07(cur, ctx):
-    cur.execute("SELECT saldo FROM partidas WHERE clave = '21401'")
-    antes = cur.fetchone()[0]
-    firmar_todo(cur, "REQ", ctx["req"])
-    cur.execute("SELECT estatus, total FROM requisiciones WHERE id = ?", ctx["req"])
-    estatus, total = cur.fetchone()
-    cur.execute("SELECT saldo FROM partidas WHERE clave = '21401'")
-    despues = cur.fetchone()[0]
-    assert estatus == "VALIDADA", estatus
-    assert antes - despues == total, f"saldo {antes} -> {despues}, total {total}"
-
-
-@caso("CP-08", "CA-03", "Proveedor no apto (62 pts, evaluación vencida o lista 69-B) se bloquea")
-def cp08(cur, ctx):
     adq = u(cur, "adquisiciones")
-    dictamen = {p["rfc"]: p for p in compras.evaluar_proveedores(cur)}
-    for rfc, texto in (("COD030303CC3", "62 puntos"), ("ELD040404DD4", "vencida"), ("DFA050505EE5", "69-B")):
-        pid = dictamen[rfc]["id"]
-        debe_fallar(lambda: compras.crear_oc(cur, adq, [ctx["req"]], pid), texto)
-    assert compras.evaluar_proveedores(cur)[0]["apto"], "el sugerido debe ser apto"
-
-
-@caso("CP-09", "CA-04", "Compra mayor al umbral sin cotizaciones comparativas no genera OC")
-def cp09(cur, ctx):
-    cur.execute("UPDATE parametros SET valor = '1000' WHERE clave = 'UMBRAL_COTIZACIONES'")
     cur.execute("SELECT id FROM proveedores WHERE rfc = 'CDE020202BB2'")
-    pid = cur.fetchone()[0]
-    debe_fallar(lambda: compras.crear_oc(cur, u(cur, "adquisiciones"), [ctx["req"]], pid), "cotizaciones")
-    cur.execute("UPDATE parametros SET valor = '300000' WHERE clave = 'UMBRAL_COTIZACIONES'")
+    ctx["prov"] = cur.fetchone()[0]
+    debe_fallar(lambda: compras.registrar_compra(cur, adq, ctx["prov"], "Sistemas", []), "al menos un renglón")
+    debe_fallar(lambda: compras.registrar_compra(cur, adq, ctx["prov"], "Sistemas",
+                                                 [("Mouse óptico USB", "Pieza", 0, 150)]), "mayores a cero")
+    debe_fallar(lambda: compras.registrar_compra(cur, adq, ctx["prov"], "",
+                                                 [("Mouse óptico USB", "Pieza", 1, 150)]), "área")
 
 
-@caso("CP-10", "CA-03", "OC con proveedor apto: 3 firmas, PDF 001-05 con QR y envío al proveedor")
-def cp10(cur, ctx):
-    cur.execute("SELECT id FROM proveedores WHERE rfc = 'CDE020202BB2'")
-    pid = cur.fetchone()[0]
-    folio = compras.crear_oc(cur, u(cur, "adquisiciones"), [ctx["req"]], pid)
-    cur.execute("SELECT id FROM ordenes_compra WHERE folio = ?", folio)
-    ctx["oc"], ctx["folio_oc"] = cur.fetchone()[0], folio
-    firmar_todo(cur, "OC", ctx["oc"])
-    cur.execute("SELECT estatus, ruta_pdf, total FROM ordenes_compra WHERE id = ?", ctx["oc"])
-    estatus, ruta, ctx["total_oc"] = cur.fetchone()
-    assert estatus == "ESPERANDO_FACTURA", estatus
+@caso("CP-03", "CA-03", "R1: compra aprobada se registra, genera PDF 001-05 con QR y se envía al proveedor")
+def cp03(cur, ctx):
+    folio = compras.registrar_compra(cur, u(cur, "adquisiciones"), ctx["prov"], "Departamento de Sistemas y Computación",
+                                     [("Mouse óptico USB", "Pieza", 10, 150), ("Cable HDMI 2 m", "Pieza", 5, 180)])
+    cur.execute("SELECT id, estatus, ruta_pdf, total FROM ordenes_compra WHERE folio = ?", folio)
+    ctx["oc"], est, ruta, ctx["total_oc"] = cur.fetchone()
+    ctx["folio_oc"] = folio
+    assert est == "ESPERANDO_FACTURA", est
     assert Path(ruta).exists(), "no se generó el PDF de la OC"
+    assert ctx["total_oc"] == 2400, ctx["total_oc"]
+    assert avisos_con(cur, f"Orden de compra {folio}") >= 1, "no se avisó al proveedor"
 
 
-@caso("CP-11", "CA-08", "Robot R3: factura con importe distinto se rechaza y abre excepción")
-def cp11(cur, ctx):
+@caso("CP-04", "CA-08", "R2: factura con importe distinto se rechaza, abre excepción y avisa al proveedor")
+def cp04(cur, ctx):
     lineas = [(l["descripcion"], l["cantidad"], l["precio_unitario"]) for l in compras.lineas_oc(cur, ctx["oc"])]
     xml = generar_xml("CDE020202BB2", "Cómputo Demo", generar_datos.RFC_INSTITUCION, lineas,
                       total_forzado=ctx["total_oc"] + 300)
     res, cods = procesar_factura(cur, xml, "factura_mala.xml", ctx["folio_oc"])
     assert res == "RECHAZADA" and cods == ["IMPORTE_DISTINTO"], cods
+    assert avisos_con(cur, f"Factura rechazada · {ctx['folio_oc']}") >= 1
     ctx["lineas"] = lineas
 
 
-@caso("CP-12", "CA-05", "Almacén no puede recibir el bien sin factura válida")
-def cp12(cur, ctx):
-    debe_fallar(lambda: recepcion.confirmar_recepcion(cur, u(cur, "almacen"), ctx["oc"], True), "factura")
+@caso("CP-05", "CA-05", "Almacén no puede recibir el material sin factura válida")
+def cp05(cur, ctx):
+    debe_fallar(lambda: recepcion.confirmar_recepcion(cur, u(cur, "almacen"), ctx["oc"]), "factura")
 
 
-@caso("CP-13", "CA-08", "Robot R3: factura correcta se valida y avisa a Almacén")
-def cp13(cur, ctx):
+@caso("CP-06", "CA-08", "R2: factura correcta se valida y avisa a Almacén")
+def cp06(cur, ctx):
     xml = generar_xml("CDE020202BB2", "Cómputo Demo", generar_datos.RFC_INSTITUCION, ctx["lineas"])
     res, cods = procesar_factura(cur, xml, "factura_buena.xml", ctx["folio_oc"])
     assert res == "VALIDA", cods
+    assert estatus(cur, ctx["oc"]) == "FACTURA_VALIDADA"
+    assert avisos_con(cur, f"Factura validada · {ctx['folio_oc']}") >= 2, "faltó el aviso a Almacén o al proveedor"
 
 
-@caso("CP-14", "CA-05", "Recepción: entrada y salida simultánea automática; aviso al área")
-def cp14(cur, ctx):
-    ent, sal = recepcion.confirmar_recepcion(cur, u(cur, "almacen"), ctx["oc"], True)
+@caso("CP-07", "CA-05", "Almacén reporta material incompleto: excepción y aviso a Adquisiciones")
+def cp07(cur, ctx):
+    alm = u(cur, "almacen")
+    debe_fallar(lambda: recepcion.reportar_problema(cur, alm, ctx["oc"], ""), "describa")
+    recepcion.reportar_problema(cur, alm, ctx["oc"], "Llegaron 8 mouse de 10")
+    assert estatus(cur, ctx["oc"]) == "FACTURA_VALIDADA", "debe seguir esperando el material"
+    assert avisos_con(cur, f"Problema en la entrega · {ctx['folio_oc']}") >= 1
+
+
+@caso("CP-08", "CA-06", "R3: Almacén confirma → entrada/salida, expediente PDF + SHA-256 y envío a Finanzas")
+def cp08(cur, ctx):
+    ent, sal = recepcion.confirmar_recepcion(cur, u(cur, "almacen"), ctx["oc"], True, "Ya llegaron los 10")
     assert ent.startswith("ENT-") and sal.startswith("SAL-")
-
-
-@caso("CP-15", "CA-06", "Firma de recibido: expediente PDF + memorándum + SHA-256 y pre-alerta a Finanzas")
-def cp15(cur, ctx):
-    recepcion.firmar_recibido(cur, u(cur, "jefe.area"), ctx["oc"], 5)
     cur.execute("SELECT ruta_pdf, sha256, memorandum FROM expedientes WHERE oc_id = ?", ctx["oc"])
     ruta, sha, mem = cur.fetchone()
     assert Path(ruta).exists() and len(sha) == 64 and mem.startswith("MEM-")
-    assert any(e["id"] == ctx["oc"] for e in pagos.en_camino(cur)), "Finanzas no lo ve en camino"
+    assert estatus(cur, ctx["oc"]) == "EN_FINANZAS"
+    assert any(p["id"] == ctx["oc"] for p in pagos.por_pagar(cur)), "Finanzas no lo ve en su bandeja"
+    assert avisos_con(cur, f"Nuevo expediente para pago · {ctx['folio_oc']}") >= 1
+    assert avisos_con(cur, "Ticket de pago PAG-") >= 1, "el proveedor no recibió su ticket"
 
 
-@caso("CP-16", "CA-07", "3 firmas de pago turnan a Finanzas y emiten ticket al proveedor")
-def cp16(cur, ctx):
-    firmar_todo(cur, "PAGO", ctx["oc"])
-    assert any(p["id"] == ctx["oc"] for p in pagos.por_pagar(cur))
-    cur.execute("SELECT COUNT(*) FROM notificaciones WHERE asunto LIKE 'Ticket de pago%'")
-    assert cur.fetchone()[0] >= 1
+@caso("CP-09", "CA-07", "Finanzas devuelve a Adquisiciones: exige motivo y avisa a Adquisiciones")
+def cp09(cur, ctx):
+    fin = u(cur, "finanzas")
+    debe_fallar(lambda: pagos.devolver(cur, fin, ctx["oc"], ""), "motivo")
+    pagos.devolver(cur, fin, ctx["oc"], "La factura no trae el sello del SAT legible")
+    assert estatus(cur, ctx["oc"]) == "DEVUELTA"
+    assert any(d["id"] == ctx["oc"] for d in pagos.devueltas(cur)), "Adquisiciones no la ve en devueltas"
+    assert avisos_con(cur, f"Finanzas devolvió el expediente · {ctx['folio_oc']}") >= 1
+    debe_fallar(lambda: pagos.registrar_pago(cur, fin, ctx["oc"], "SPEI123", date.today()), "en finanzas")
 
 
-@caso("CP-17", "CA-10", "Robot R10: conciliación del archivo del banco marca PAGADA; lo no identificado es excepción")
-def cp17(cur, ctx):
+@caso("CP-10", "CA-07", "Adquisiciones corrige y reenvía a Finanzas con respuesta; Finanzas recibe aviso")
+def cp10(cur, ctx):
+    adq = u(cur, "adquisiciones")
+    debe_fallar(lambda: pagos.reenviar(cur, adq, ctx["oc"], ""), "corrigió")
+    pagos.reenviar(cur, adq, ctx["oc"], "El proveedor envió el PDF con sello legible")
+    assert estatus(cur, ctx["oc"]) == "EN_FINANZAS"
+    assert avisos_con(cur, f"Expediente corregido · {ctx['folio_oc']}") >= 1
+    cur.execute("SELECT COUNT(*) FROM excepciones WHERE oc_id = ? AND tipo = 'DEVUELTA_FINANZAS' AND estatus = 'ABIERTA'",
+                ctx["oc"])
+    assert cur.fetchone()[0] == 0, "la devolución debe quedar resuelta"
+
+
+@caso("CP-11", "CA-07", "Finanzas programa la fecha de pago: avisa a Adquisiciones y al proveedor")
+def cp11(cur, ctx):
+    fin = u(cur, "finanzas")
+    debe_fallar(lambda: pagos.programar(cur, fin, ctx["oc"], date.today() - timedelta(days=1)), "anterior")
+    pagos.programar(cur, fin, ctx["oc"], date.today() + timedelta(days=3))
+    assert avisos_con(cur, f"Pago programado · {ctx['folio_oc']}") >= 1, "no se avisó a Adquisiciones"
+    assert avisos_con(cur, "Pago programado · PAG-") >= 1, "no se avisó al proveedor"
+
+
+@caso("CP-12", "CA-14", "R4: recordatorio a Finanzas y a Adquisiciones por expedientes sin respuesta (1 vez al día)")
+def cp12(cur, ctx):
+    # Una OC «vieja» en Finanzas sin fecha de pago: se simula que llegó hace 3 días.
+    cur.execute("SELECT id FROM ordenes_compra WHERE folio = 'OC-2026-0001'")
+    vieja = cur.fetchone()[0]
+    cur.execute("UPDATE ordenes_compra SET estatus = 'EN_FINANZAS' WHERE id = ?", vieja)
+    cur.execute("INSERT INTO pagos (oc_id, fecha_turno) VALUES (?, DATEADD(DAY, -3, SYSDATETIME()))", vieja)
+    assert pagos.recordar_pendientes(cur) == 1
+    assert pagos.recordar_pendientes(cur) == 0, "no debe repetir el aviso el mismo día"
+    cur.execute("DELETE FROM pagos WHERE oc_id = ?", vieja)
+    cur.execute("UPDATE ordenes_compra SET estatus = 'ESPERANDO_FACTURA' WHERE id = ?", vieja)
+
+
+@caso("CP-13", "CA-10", "R5: conciliación del archivo del banco marca PAGADA; lo no identificado es excepción")
+def cp13(cur, ctx):
     carpeta = config.RAIZ / "banco" / "entrada"
     carpeta.mkdir(parents=True, exist_ok=True)
     with open(carpeta / "movimientos_prueba.csv", "w", newline="", encoding="utf-8") as fh:
@@ -240,33 +200,19 @@ def cp17(cur, ctx):
         w.writerow([date.today().isoformat(), "SPEI000111", "PAGO OC-2026-0999", "123.00"])
 
 
-@caso("CP-18", "CA-12", "Seguimiento por folio (REQ, OC y ticket PAG) muestra la línea de tiempo")
-def cp18(cur, ctx):
-    for f in (ctx["folio_req"], ctx["folio_oc"], "PAG-" + ctx["folio_oc"][3:]):
+@caso("CP-14", "CA-12", "Seguimiento por folio (OC y ticket PAG) muestra «Pagada» y la línea de tiempo")
+def cp14(cur, ctx):
+    for f in (ctx["folio_oc"], "PAG-" + ctx["folio_oc"][3:]):
         s = consultas.seguimiento(cur, f)
         assert s and s["estatus"] == "Pagada", (f, s and s["estatus"])
-        assert len(s["eventos"]) >= 10
+        assert len(s["eventos"]) >= 8, len(s["eventos"])
     assert consultas.seguimiento(cur, "OC-2026-9999") is None
 
 
-@caso("CP-19", "CA-14", "Robot R2: recordatorio a las 24 h y escalamiento a las 48 h")
-def cp19(cur, ctx):
-    mouse, p = concepto(cur, "Mouse")
-    folio = requisiciones.crear(cur, u(cur, "solicitante"), "Reposición de mouse dañados", [(mouse, Decimal(1), p)])
-    cur.execute("SELECT id FROM requisiciones WHERE folio = ?", folio)
-    rid = cur.fetchone()[0]
-    cur.execute("UPDATE aprobaciones SET fecha_asignacion = DATEADD(HOUR, -25, SYSDATETIME()) "
-                "WHERE tipo='REQ' AND referencia_id=? AND estatus='PENDIENTE'", rid)
-    assert firmas.recordar_y_escalar(cur) == 1
-    cur.execute("UPDATE aprobaciones SET fecha_asignacion = DATEADD(HOUR, -49, SYSDATETIME()) "
-                "WHERE tipo='REQ' AND referencia_id=? AND estatus='PENDIENTE'", rid)
-    assert firmas.recordar_y_escalar(cur) == 1
-    assert firmas.recordar_y_escalar(cur) == 0, "no debe repetir avisos"
-
-
-@caso("CP-20", "CA-14", "Robot R6: semáforo rojo a 10 días del cierre; alerta solo una vez al día")
-def cp20(cur, ctx):
+@caso("CP-15", "CA-14", "R6: semáforo rojo a 10 días del 15 de diciembre; alerta solo una vez al día")
+def cp15(cur, ctx):
     limite = datetime.strptime(db.parametro(cur, "FECHA_LIMITE_PAGOS"), "%Y-%m-%d").date()
+    assert (limite.month, limite.day) == (12, 15), limite
     hoy = limite - timedelta(days=10)
     estado = vigilante.estado_cierre(cur, hoy)
     assert estado and all(e["semaforo"] == "ROJO" for e in estado)
@@ -275,8 +221,8 @@ def cp20(cur, ctx):
     assert vigilante.estado_cierre(cur, limite - timedelta(days=40))[0]["semaforo"] == "VERDE"
 
 
-@caso("CP-21", "CA-16", "La bitácora no se puede modificar ni borrar")
-def cp21(cur, ctx):
+@caso("CP-16", "CA-16", "La bitácora no se puede modificar ni borrar")
+def cp16(cur, ctx):
     try:
         cur.execute("DELETE FROM bitacora")
     except Exception:  # noqa: BLE001
@@ -284,18 +230,17 @@ def cp21(cur, ctx):
     raise AssertionError("se pudo borrar la bitácora")
 
 
-@caso("CP-23", "RNF-02", "Consulta de folio con 1,000 expedientes simulados en ≤ 2 s")
-def cp23(cur, ctx):
+@caso("CP-18", "RNF-02", "Consulta de folio con 1,000 expedientes simulados en ≤ 2 s")
+def cp18(cur, ctx):
     cur.execute("SELECT id FROM proveedores WHERE rfc = 'PDA010101AA1'")
     pid = cur.fetchone()[0]
     for i in range(1000):
-        cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, total, estatus) VALUES (?, ?, 100, 'PAGADA')",
-                    f"OC-1999-{i:04d}", pid)
+        cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, area_solicitante, total, estatus) "
+                    "VALUES (?, ?, 'Carga', 100, 'PAGADA')", f"OC-1999-{i:04d}", pid)
         cur.execute("INSERT INTO bitacora (actor, entidad, entidad_id, accion) VALUES ('CARGA', 'OC', SCOPE_IDENTITY(), 'VOLUMEN')")
     t0 = time.perf_counter()
     s = consultas.seguimiento(cur, ctx["folio_oc"])
     seg = time.perf_counter() - t0
-    ctx["t_consulta"] = seg
     assert s and seg <= 2, f"{seg:.3f} s"
     cur.execute("DELETE FROM ordenes_compra WHERE folio LIKE 'OC-1999-%'")
 
@@ -305,25 +250,22 @@ def main():
     generar_datos.main()
     print()
     ctx = {}
-    for c in (cp01, cp02, cp03, cp04, cp05, cp06, cp07, cp08, cp09, cp10, cp11, cp12, cp13, cp14, cp15, cp16):
+    for c in (cp01, cp02, cp03, cp04, cp05, cp06, cp07, cp08, cp09, cp10, cp11, cp12, cp13):
         c(ctx)
-    cp17(ctx)
     conciliadas = pagos.conciliar_carpeta()
     with db.conexion() as con:
-        cur = con.cursor()
-        cur.execute("SELECT estatus FROM ordenes_compra WHERE id = ?", ctx.get("oc"))
-        ok = cur.fetchone()[0] == "PAGADA" and len(conciliadas) == 2
-    RESULTADOS.append(["CP-17b", "CA-10", "Conciliación: OC PAGADA y 1 movimiento no identificado",
+        ok = estatus(con.cursor(), ctx.get("oc")) == "PAGADA" and len(conciliadas) == 2
+    RESULTADOS.append(["CP-13b", "CA-10", "Conciliación: OC PAGADA y 1 movimiento no identificado",
                        "APROBADO" if ok else "FALLIDO", "", "; ".join(conciliadas)])
-    print(f"{'✔' if ok else '✘'} CP-17b conciliación: {conciliadas}")
-    for c in (cp18, cp19, cp20, cp21):
+    print(f"{'✔' if ok else '✘'} CP-13b conciliación: {conciliadas}")
+    for c in (cp14, cp15, cp16):
         c(ctx)
-    r5 = notificador.enviar_pendientes()
-    ok5 = r5["SIMULADA"] > 0 and r5["FALLIDA"] == 0
-    RESULTADOS.append(["CP-22", "CA-12", "Robot R5 procesa la cola de avisos (modo simulado)",
-                       "APROBADO" if ok5 else "FALLIDO", "", str(r5)])
-    print(f"{'✔' if ok5 else '✘'} CP-22  avisos: {r5}")
-    cp23(ctx)
+    r7 = notificador.enviar_pendientes()
+    ok7 = r7["SIMULADA"] > 0 and r7["FALLIDA"] == 0
+    RESULTADOS.append(["CP-17", "CA-12", "Robot R7 procesa la cola de avisos (modo simulado)",
+                       "APROBADO" if ok7 else "FALLIDO", "", str(r7)])
+    print(f"{'✔' if ok7 else '✘'} CP-17  avisos: {r7}")
+    cp18(ctx)
 
     with db.conexion() as con:
         ind = consultas.indicadores(con.cursor())

@@ -1,4 +1,4 @@
-"""Robot R5 · Envía los avisos de la cola por correo y por Telegram.
+"""Robot R7 · Envía los avisos de la cola por correo y por Telegram.
 
 - Reintenta hasta 3 veces; después marca el aviso como FALLIDA (RNF-09).
 - MODO_SIMULADO=1: no envía nada, solo marca SIMULADA (para probar sin internet).

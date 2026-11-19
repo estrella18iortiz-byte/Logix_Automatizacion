@@ -2,11 +2,11 @@
 
     python panel.py
 
-Cada rol ve solo sus pantallas. Las personas solo deciden, autorizan, verifican el
-bien físico y pagan; lo demás lo hacen los robots (robot.py).
+Cada rol ve solo sus pantallas. La compra YA viene aprobada: las personas solo registran
+la compra (Adquisiciones), revisan el material físico (Almacén) y pagan (Finanzas);
+mover los documentos y avisar entre departamentos lo hacen los robots (robot.py).
 """
 import os
-import tkinter as tk
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from tkinter import filedialog, messagebox, ttk
@@ -15,8 +15,7 @@ import customtkinter as ctk
 from PIL import Image
 
 import robot
-from logix import (compras, config, consultas, db, firmas, pagos, recepcion, requisiciones,
-                   usuarios, vigilante)
+from logix import compras, config, consultas, db, pagos, recepcion, usuarios, vigilante
 from logix.cfdi_simulado import generar_xml
 from logix.errores import ReglaNegocio
 from logix.robot_facturas import PATRON_OC, procesar_factura
@@ -26,18 +25,10 @@ VERDE, AMARILLO, ROJO = "#2E9E5B", "#E0A800", "#C0392B"
 FUENTE = "Century Gothic"
 
 MENUS = {
-    "SOLICITANTE": ["Inicio", "Nueva requisición", "Mis requisiciones", "Recibir material", "Consultar folio"],
-    "JEFE_AREA": ["Inicio", "Firmas pendientes", "Nueva requisición", "Mis requisiciones", "Recibir material",
-                  "Consultar folio"],
-    "PRESUPUESTOS": ["Inicio", "Firmas pendientes", "Consultar folio"],
-    "SUBDIRECTOR": ["Inicio", "Firmas pendientes", "Consultar folio"],
-    "DIRECTOR": ["Inicio", "Firmas pendientes", "Consultar folio"],
-    "JEFE_RM": ["Inicio", "Firmas pendientes", "Consultar folio"],
-    "SUBDIR_ADMIN": ["Inicio", "Firmas pendientes", "Consultar folio"],
-    "ADQUISICIONES": ["Inicio", "Firmas pendientes", "Generar orden de compra", "Excepciones",
-                      "Buzón de facturas", "Proveedores", "Consultar folio"],
+    "ADQUISICIONES": ["Inicio", "Registrar compra", "Buzón de facturas", "Devueltas por Finanzas", "Excepciones",
+                      "Proveedores", "Consultar folio"],
     "ALMACEN": ["Inicio", "Recepción", "Consultar folio"],
-    "FINANZAS": ["Inicio", "Pagos", "Consultar folio"],
+    "FINANZAS": ["Inicio", "Expedientes", "Consultar folio"],
     "ADMIN": ["Inicio", "Robots y avisos", "Indicadores", "Bitácora", "Consultar folio"],
 }
 
@@ -88,7 +79,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         ctk.set_appearance_mode("light")
-        self.title("Logix · Seguimiento del expediente de compra directa")
+        self.title("Logix · Adquisiciones ⇄ Recursos Financieros")
         self.geometry("1280x760")
         self.minsize(1100, 680)
         self.configure(fg_color=FONDO)
@@ -198,10 +189,10 @@ class App(ctk.CTk):
             b.configure(fg_color=CIAN if o == opcion else "transparent")
         self.limpiar(self.contenido)
         vistas = {
-            "Inicio": self.v_inicio, "Nueva requisición": self.v_nueva_req, "Mis requisiciones": self.v_mis_req,
-            "Firmas pendientes": self.v_firmas, "Generar orden de compra": self.v_generar_oc,
-            "Excepciones": self.v_excepciones, "Buzón de facturas": self.v_buzon, "Proveedores": self.v_proveedores,
-            "Recepción": self.v_recepcion, "Recibir material": self.v_recibir, "Pagos": self.v_pagos,
+            "Inicio": self.v_inicio, "Registrar compra": self.v_registrar_compra,
+            "Buzón de facturas": self.v_buzon, "Devueltas por Finanzas": self.v_devueltas,
+            "Excepciones": self.v_excepciones, "Proveedores": self.v_proveedores,
+            "Recepción": self.v_recepcion, "Expedientes": self.v_pagos,
             "Consultar folio": self.v_folio, "Robots y avisos": self.v_robots, "Indicadores": self.v_indicadores,
             "Bitácora": self.v_bitacora,
         }
@@ -217,16 +208,22 @@ class App(ctk.CTk):
 
     def v_inicio(self):
         self.titulo(f"Hola, {self.usuario['nombre'].split()[0]}",
-                    "Logix hace el trámite; tú solo decides, autorizas o verificas. "
-                    "Lo que necesita tu atención aparece aquí.")
+                    "Logix mueve la orden de compra, la factura, la confirmación de almacén y el pago entre "
+                    "Adquisiciones y Recursos Financieros. Lo que necesita tu atención aparece aquí.")
         t = self.consultar(consultas.tablero)
-        mis_firmas = len(self.consultar(lambda c: firmas.pendientes_de(c, self.usuario)))
+        o = t["ordenes"]
         fila = ctk.CTkFrame(self.contenido, fg_color="transparent")
         fila.pack(fill="x", pady=8)
-        self.tarjeta(fila, mis_firmas, "Firmas que te tocan", CIAN if mis_firmas else MARINO)
-        self.tarjeta(fila, t["firmas_pendientes"], "Firmas pendientes (todas)")
-        self.tarjeta(fila, t["excepciones"], "Excepciones abiertas", ROJO if t["excepciones"] else VERDE)
-        self.tarjeta(fila, t["ordenes"].get("PAGADA", 0), "Compras pagadas", VERDE)
+        self.tarjeta(fila, o.get("ESPERANDO_FACTURA", 0), "Esperando factura")
+        self.tarjeta(fila, o.get("FACTURA_VALIDADA", 0), "Por recibir en almacén",
+                     CIAN if self.usuario["rol"] == "ALMACEN" and o.get("FACTURA_VALIDADA") else MARINO)
+        self.tarjeta(fila, o.get("EN_FINANZAS", 0), "En Recursos Financieros",
+                     CIAN if self.usuario["rol"] == "FINANZAS" and o.get("EN_FINANZAS") else MARINO)
+        self.tarjeta(fila, o.get("DEVUELTA", 0), "Devueltas por Finanzas", ROJO if o.get("DEVUELTA") else VERDE)
+        fila2 = ctk.CTkFrame(self.contenido, fg_color="transparent")
+        fila2.pack(fill="x", pady=(0, 8))
+        self.tarjeta(fila2, t["excepciones"], "Excepciones abiertas", ROJO if t["excepciones"] else VERDE)
+        self.tarjeta(fila2, o.get("PAGADA", 0), "Compras pagadas", VERDE)
         if not self.usuario.get("telegram_chat_id") and self.usuario.get("codigo_telegram"):
             aviso = ctk.CTkFrame(self.contenido, fg_color="white", corner_radius=12)
             aviso.pack(fill="x", pady=(10, 0))
@@ -236,114 +233,11 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.contenido, text="Semáforo del cierre de ejercicio (robot R6)", font=(FUENTE, 16, "bold"),
                      text_color=MARINO).pack(anchor="w", pady=(14, 0))
         estado = self.consultar(vigilante.estado_cierre)
-        tabla = Tabla(self.contenido, [("Semáforo", 90), ("Folio", 120), ("Proveedor", 260), ("Estatus", 260),
+        tabla = Tabla(self.contenido, [("Semáforo", 90), ("Folio", 120), ("Proveedor", 260), ("Estatus", 280),
                                        ("Importe", 110), ("Días al cierre", 110)])
         tabla.llenar(estado, lambda f: ["● " + f["semaforo"].title(), f["folio"], f["proveedor"],
                                         consultas.ESTATUS_LEGIBLE.get(f["estatus"], f["estatus"]), pesos(f["total"]),
                                         f["dias"]], etiqueta=lambda f: f["semaforo"])
-
-    # --- Solicitante: nueva requisición (R1)
-    def v_nueva_req(self):
-        self.titulo("Nueva requisición (formato 001-03)",
-                    "Elige qué necesitas y cuánto. Logix asigna la partida, propone el precio de referencia "
-                    "y revisa el saldo antes de enviar. Después la manda sola a las 4 firmas.")
-        self.catalogo = self.consultar(requisiciones.catalogo_conceptos)
-        self.lineas = []
-        caja = ctk.CTkFrame(self.contenido, fg_color="white", corner_radius=12)
-        caja.pack(fill="x", pady=6)
-        nombres = [c["descripcion"] for c in self.catalogo]
-        self.cb_concepto = ctk.CTkComboBox(caja, values=nombres, width=380, command=self._concepto_elegido)
-        self.cb_concepto.grid(row=0, column=0, padx=12, pady=12)
-        self.e_cant = ctk.CTkEntry(caja, placeholder_text="Cantidad", width=90)
-        self.e_cant.grid(row=0, column=1, padx=6)
-        self.e_precio = ctk.CTkEntry(caja, placeholder_text="Precio con IVA", width=120)
-        self.e_precio.grid(row=0, column=2, padx=6)
-        self.boton(caja, "Agregar", self._agregar_linea, width=100).grid(row=0, column=3, padx=12)
-        self.l_info = ctk.CTkLabel(caja, text="", font=("Segoe UI", 11), text_color="#4A5D73")
-        self.l_info.grid(row=1, column=0, columnspan=4, sticky="w", padx=12, pady=(0, 10))
-        self.t_lineas = Tabla(self.contenido, [("Concepto", 330), ("Partida", 80), ("Cantidad", 80),
-                                               ("Precio", 100), ("Importe", 110)], alto=6)
-        self.l_total = ctk.CTkLabel(self.contenido, text="Total: $0.00", font=(FUENTE, 16, "bold"), text_color=MARINO)
-        self.l_total.pack(anchor="e")
-        self.t_just = ctk.CTkTextbox(self.contenido, height=70)
-        self.t_just.pack(fill="x", pady=6)
-        self.t_just.insert("1.0", "Justificación: ")
-        f = self.fila_botones()
-        self.boton(f, "Quitar renglón", self._quitar_linea, color=ACENTO).pack(side="left")
-        self.boton(f, "Enviar a firmas", self._enviar_req, color=CIAN).pack(side="right")
-        self._concepto_elegido(nombres[0])
-
-    def _concepto_elegido(self, nombre):
-        c = next(x for x in self.catalogo if x["descripcion"] == nombre)
-        self.e_precio.delete(0, "end")
-        self.e_precio.insert(0, f"{c['precio_referencia']:.2f}")
-        self.l_info.configure(text=f"Partida {c['partida']} · {c['partida_desc']} · saldo disponible "
-                                   f"{pesos(c['saldo'])} · precio de referencia {pesos(c['precio_referencia'])}")
-
-    def _agregar_linea(self):
-        try:
-            cant, precio = Decimal(self.e_cant.get()), Decimal(self.e_precio.get())
-        except InvalidOperation:
-            messagebox.showwarning("Logix", "Escribe la cantidad y el precio con números.")
-            return
-        c = next(x for x in self.catalogo if x["descripcion"] == self.cb_concepto.get())
-        self.lineas.append((c, cant, precio))
-        self._refrescar_lineas()
-        self.e_cant.delete(0, "end")
-
-    def _quitar_linea(self):
-        sel = self.t_lineas.selection()
-        if sel:
-            self.lineas.pop(self.t_lineas.index(sel[0]))
-            self._refrescar_lineas()
-
-    def _refrescar_lineas(self):
-        self.t_lineas.llenar(self.lineas, lambda l: [l[0]["descripcion"], l[0]["partida"], f"{l[1]:g}",
-                                                    pesos(l[2]), pesos(l[1] * l[2])])
-        self.l_total.configure(text=f"Total: {pesos(sum(c * p for _, c, p in self.lineas))}")
-
-    def _enviar_req(self):
-        just = self.t_just.get("1.0", "end").replace("Justificación:", "").strip()
-        lineas = [(c["id"], cant, p) for c, cant, p in self.lineas]
-        folio = self.ejecutar(lambda cur: requisiciones.crear(cur, self.usuario, just, lineas),
-                              lambda f: f"Requisición {f} enviada. Logix ya avisó al Jefe de tu área.")
-        if folio:
-            self.ir("Mis requisiciones")
-
-    def v_mis_req(self):
-        self.titulo("Requisiciones de mi área", "Si una requisición fue devuelta, selecciónala para corregirla.")
-        filas = self.consultar(lambda c: requisiciones.de_usuario(c, self.usuario))
-        tabla = Tabla(self.contenido, [("Folio", 120), ("Fecha", 130), ("Total", 100), ("Estatus", 220),
-                                       ("Motivo de devolución", 380)])
-        tabla.llenar(filas, lambda f: [f["folio"], fecha(f["fecha"]), pesos(f["total"]),
-                                       consultas.ESTATUS_LEGIBLE.get(f["estatus"], f["estatus"]),
-                                       f["motivo"] if f["estatus"] == "EN_CORRECCION" else ""])
-        f = self.fila_botones()
-        self.boton(f, "Corregir y reenviar", lambda: self._corregir(tabla)).pack(side="left")
-        self.boton(f, "Ver seguimiento", lambda: self._ver_folio(tabla), color=ACENTO).pack(side="left", padx=8)
-
-    def _corregir(self, tabla):
-        sel = tabla.seleccion()
-        if not sel or sel[0]["estatus"] != "EN_CORRECCION":
-            messagebox.showinfo("Logix", "Selecciona una requisición devuelta.")
-            return
-        req = sel[0]
-        det = self.consultar(lambda c: requisiciones.detalle(c, req["id"]))
-        cambios = {}
-        for d in det:
-            r = ctk.CTkInputDialog(title="Corregir", text=f"{d['descripcion']}\nCantidad actual {d['cantidad']:g} · "
-                                   f"precio {pesos(d['precio_unitario'])}\nEscribe «cantidad, precio» "
-                                   "(vacío = sin cambio):").get_input()
-            if r:
-                try:
-                    cant, precio = (Decimal(x.strip()) for x in r.split(","))
-                    cambios[d["id"]] = (cant, precio)
-                except (ValueError, InvalidOperation):
-                    messagebox.showwarning("Logix", "Formato: 8, 150")
-                    return
-        self.ejecutar(lambda cur: requisiciones.corregir_y_reenviar(cur, self.usuario, req["id"], cambios),
-                      f"{req['folio']} corregida y reenviada a firmas.")
-        self.ir("Mis requisiciones")
 
     def _ver_folio(self, tabla):
         sel = tabla.seleccion()
@@ -352,68 +246,120 @@ class App(ctk.CTk):
             self.e_folio.insert(0, sel[0]["folio"])
             self._buscar_folio()
 
-    # --- Firmas (R2)
-    def v_firmas(self):
-        self.titulo("Firmas pendientes", "Revisa y autoriza con un botón. Si algo no está bien, devuélvelo con su "
-                                          "motivo. Logix turna al siguiente nivel y avisa solo.")
-        filas = self.consultar(lambda c: firmas.pendientes_de(c, self.usuario))
-        tabla = Tabla(self.contenido, [("Tipo", 150), ("Folio", 120), ("Nivel", 60), ("Importe", 110),
-                                       ("Detalle", 420), ("Asignada", 130)])
-        tabla.llenar(filas, lambda f: [firmas.NOMBRES[f["tipo"]].capitalize(), f["folio"], f["nivel"],
-                                       pesos(f["total"]), f["detalle"], fecha(f["fecha_asignacion"])])
+    # --- Adquisiciones: registrar una compra ya aprobada (robot R1)
+    def v_registrar_compra(self):
+        self.titulo("Registrar compra aprobada",
+                    "La compra ya fue autorizada. Escribe a quién se le compró y qué se compró: Logix le pone "
+                    "folio, genera la orden de compra (001-05) con QR y se la manda al proveedor para que facture.")
+        self.provs = self.consultar(compras.proveedores_activos)
+        self.lineas = []
+        caja = ctk.CTkFrame(self.contenido, fg_color="white", corner_radius=12)
+        caja.pack(fill="x", pady=6)
+        ctk.CTkLabel(caja, text="Proveedor").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 0))
+        self.cb_prov = ctk.CTkComboBox(caja, values=[f"{p['razon_social']} · {p['rfc']}" for p in self.provs],
+                                       width=420, command=self._prov_elegido)
+        self.cb_prov.grid(row=1, column=0, columnspan=3, sticky="w", padx=12)
+        ctk.CTkLabel(caja, text="Área que pidió el material").grid(row=0, column=3, sticky="w", padx=12, pady=(12, 0))
+        self.e_area = ctk.CTkEntry(caja, width=320, placeholder_text="Departamento de Sistemas y Computación")
+        self.e_area.grid(row=1, column=3, columnspan=2, sticky="w", padx=12)
+        self.l_prov = ctk.CTkLabel(caja, text="", font=("Segoe UI", 11), text_color=ROJO)
+        self.l_prov.grid(row=2, column=0, columnspan=5, sticky="w", padx=12)
+        self.e_desc = ctk.CTkEntry(caja, placeholder_text="Descripción (ej. Mouse óptico USB)", width=330)
+        self.e_desc.grid(row=3, column=0, padx=12, pady=12)
+        self.e_unidad = ctk.CTkEntry(caja, placeholder_text="Unidad", width=90)
+        self.e_unidad.grid(row=3, column=1, padx=4)
+        self.e_cant = ctk.CTkEntry(caja, placeholder_text="Cantidad", width=90)
+        self.e_cant.grid(row=3, column=2, padx=4)
+        self.e_precio = ctk.CTkEntry(caja, placeholder_text="Precio con IVA", width=120)
+        self.e_precio.grid(row=3, column=3, padx=4, sticky="w")
+        self.boton(caja, "Agregar", self._agregar_linea, width=100).grid(row=3, column=4, padx=12)
+        self.t_lineas = Tabla(self.contenido, [("Descripción", 360), ("Unidad", 90), ("Cantidad", 90),
+                                               ("Precio", 110), ("Importe", 120)], alto=6)
+        self.l_total = ctk.CTkLabel(self.contenido, text="Total: $0.00", font=(FUENTE, 16, "bold"), text_color=MARINO)
+        self.l_total.pack(anchor="e")
         f = self.fila_botones()
-        self.boton(f, "✔ Aprobar", lambda: self._firmar(tabla, True), color=VERDE).pack(side="left")
-        self.boton(f, "↩ Devolver con motivo", lambda: self._firmar(tabla, False), color=ROJO).pack(side="left",
-                                                                                                    padx=8)
-        self.boton(f, "Ver seguimiento", lambda: self._ver_folio(tabla), color=ACENTO).pack(side="right")
+        self.boton(f, "Quitar renglón", self._quitar_linea, color=ACENTO).pack(side="left")
+        self.boton(f, "Registrar y enviar al proveedor", self._registrar_compra, color=CIAN).pack(side="right")
+        if self.provs:
+            self.cb_prov.set(f"{self.provs[0]['razon_social']} · {self.provs[0]['rfc']}")
+            self._prov_elegido(self.cb_prov.get())
 
-    def _firmar(self, tabla, aprobar):
-        sel = tabla.seleccion()
-        if not sel:
-            messagebox.showinfo("Logix", "Selecciona una firma.")
+    def _prov_actual(self):
+        return next((p for p in self.provs if f"{p['razon_social']} · {p['rfc']}" == self.cb_prov.get()), None)
+
+    def _prov_elegido(self, _):
+        p = self._prov_actual()
+        self.l_prov.configure(text=f"⚠ Este proveedor aparece en la lista 69-B del SAT ({p['sat_69b']}): "
+                                   "su factura será rechazada." if p and p["sat_69b"] else "")
+
+    def _agregar_linea(self):
+        try:
+            cant, precio = Decimal(self.e_cant.get()), Decimal(self.e_precio.get())
+        except InvalidOperation:
+            messagebox.showwarning("Logix", "Escribe la cantidad y el precio con números.")
             return
-        a = sel[0]
-        if aprobar:
-            self.ejecutar(lambda cur: firmas.aprobar(cur, self.usuario, a["id"]), f"{a['folio']} aprobada.")
-        else:
-            motivo = ctk.CTkInputDialog(title="Devolver", text=f"Motivo para devolver {a['folio']}:").get_input()
-            if motivo is None:
-                return
-            self.ejecutar(lambda cur: firmas.devolver(cur, self.usuario, a["id"], motivo), f"{a['folio']} devuelta.")
-        self.ir("Firmas pendientes")
+        desc = self.e_desc.get().strip()
+        if not desc:
+            messagebox.showwarning("Logix", "Escribe la descripción de lo que se compró.")
+            return
+        self.lineas.append((desc, self.e_unidad.get().strip() or "Pieza", cant, precio))
+        self._refrescar_lineas()
+        for e in (self.e_desc, self.e_unidad, self.e_cant, self.e_precio):
+            e.delete(0, "end")
 
-    # --- Adquisiciones (R8, R9)
-    def v_generar_oc(self):
-        self.titulo("Generar orden de compra (001-05)",
-                    "Elige una o varias requisiciones validadas. Logix ya filtró a los proveedores: "
-                    "solo puedes elegir a los aptos y el primero es el sugerido.")
-        reqs = self.consultar(compras.requisiciones_validadas)
-        t_req = Tabla(self.contenido, [("Folio", 120), ("Área", 300), ("Total", 110), ("Justificación", 420)], alto=5)
-        t_req.llenar(reqs, lambda f: [f["folio"], f["area"], pesos(f["total"]), f["justificacion"]])
-        provs = self.consultar(compras.evaluar_proveedores)
-        ctk.CTkLabel(self.contenido, text="Proveedores (robot R8)", font=(FUENTE, 15, "bold"),
-                     text_color=MARINO).pack(anchor="w")
-        t_prov = Tabla(self.contenido, [("Dictamen", 90), ("Proveedor", 300), ("RFC", 130), ("Puntaje", 70),
-                                        ("Motivo", 420)], alto=6)
-        t_prov.llenar(provs, lambda p: ["✔ Apto" if p["apto"] else "✘ No apto", p["razon_social"], p["rfc"],
-                                        p["puntaje_evaluacion"], p["motivo"]],
-                      etiqueta=lambda p: "VERDE" if p["apto"] else "ROJO")
+    def _quitar_linea(self):
+        sel = self.t_lineas.selection()
+        if sel:
+            self.lineas.pop(self.t_lineas.index(sel[0]))
+            self._refrescar_lineas()
+
+    def _refrescar_lineas(self):
+        self.t_lineas.llenar(self.lineas, lambda l: [l[0], l[1], f"{l[2]:g}", pesos(l[3]), pesos(l[2] * l[3])])
+        self.l_total.configure(text=f"Total: {pesos(sum(c * p for _, _, c, p in self.lineas))}")
+
+    def _registrar_compra(self):
+        p = self._prov_actual()
+        if not p:
+            messagebox.showinfo("Logix", "Elige un proveedor.")
+            return
+        folio = self.ejecutar(lambda cur: compras.registrar_compra(cur, self.usuario, p["id"], self.e_area.get(),
+                                                                   self.lineas),
+                              lambda f: f"Compra registrada con el folio {f}. Logix generó la orden de compra "
+                                        "y ya se la mandó al proveedor con las instrucciones para facturar.")
+        if folio:
+            self.ir("Registrar compra")
+
+    # --- Adquisiciones: lo que Finanzas regresó (comunicación de ida y vuelta)
+    def v_devueltas(self):
+        self.titulo("Devueltas por Finanzas",
+                    "Recursos Financieros te regresó estos expedientes explicando qué falta o qué está mal. "
+                    "Corrígelo (con el proveedor si hace falta) y reenvíalo con tu respuesta: Logix le avisa a Finanzas.")
+        filas = self.consultar(pagos.devueltas)
+        tabla = Tabla(self.contenido, [("OC", 120), ("Proveedor", 260), ("Importe", 110), ("Devuelta", 130),
+                                       ("Motivo de Finanzas", 460)])
+        tabla.llenar(filas, lambda f: [f["folio"], f["proveedor"], pesos(f["total"]), fecha(f["fecha"]), f["motivo"]],
+                     etiqueta=lambda f: "ROJO")
         f = self.fila_botones()
-        cotiz = ctk.CTkCheckBox(f, text="Adjunté cotizaciones comparativas (obligatorio > $300,000)")
-        cotiz.pack(side="left")
 
-        def generar():
-            r, p = t_req.seleccion(), t_prov.seleccion()
-            if not r or not p:
-                messagebox.showinfo("Logix", "Selecciona requisición(es) y un proveedor.")
+        def abrir():
+            s = tabla.seleccion()
+            if s and s[0]["ruta_pdf"]:
+                os.startfile(s[0]["ruta_pdf"])
+
+        def reenviar():
+            s = tabla.seleccion()
+            if not s:
+                messagebox.showinfo("Logix", "Selecciona un expediente devuelto.")
                 return
-            folio = self.ejecutar(lambda cur: compras.crear_oc(cur, self.usuario, [x["id"] for x in r], p[0]["id"],
-                                                               bool(cotiz.get())),
-                                  lambda fo: f"Orden {fo} creada y enviada a firmas. Al autorizarse, Logix genera el "
-                                             "PDF y se lo manda al proveedor.")
-            if folio:
-                self.ir("Generar orden de compra")
-        self.boton(f, "Generar OC", generar, color=CIAN).pack(side="right")
+            r = ctk.CTkInputDialog(title="Reenviar a Finanzas",
+                                   text=f"¿Qué se corrigió en {s[0]['folio']}? (Finanzas lo leerá)").get_input()
+            if r is not None:
+                self.ejecutar(lambda cur: pagos.reenviar(cur, self.usuario, s[0]["id"], r),
+                              f"{s[0]['folio']} reenviado a Recursos Financieros.")
+                self.ir("Devueltas por Finanzas")
+        self.boton(f, "Abrir expediente PDF", abrir, color=ACENTO).pack(side="left")
+        self.boton(f, "↪ Reenviar a Finanzas", reenviar, color=CIAN).pack(side="left", padx=8)
+        self.boton(f, "Ver seguimiento", lambda: self._ver_folio(tabla), color=ACENTO).pack(side="right")
 
     def v_excepciones(self):
         self.titulo("Excepciones", "Lo único que Logix no resuelve solo. Al corregirse con el proveedor, "
@@ -437,7 +383,7 @@ class App(ctk.CTk):
         self.boton(f, "Resuelta y reactivar OC", lambda: resolver(True), color=CIAN).pack(side="left", padx=8)
 
     def v_buzon(self):
-        self.titulo("Buzón de facturas (robot R3)",
+        self.titulo("Buzón de facturas (robot R2)",
                     "Los proveedores envían su XML por correo con el folio de la OC en el asunto y el robot lo "
                     "procesa solo. Para la demostración, aquí puedes simular la llegada de un correo.")
         f = self.fila_botones()
@@ -472,11 +418,11 @@ class App(ctk.CTk):
         r = self.ejecutar(lambda cur: procesar_factura(cur, contenido, os.path.basename(ruta), folio))
         if r:
             res, cods = r
-            messagebox.showinfo("Robot R3", f"Resultado: {res}" + (f"\nReglas: {', '.join(cods)}" if cods else ""))
+            messagebox.showinfo("Robot R2", f"Resultado: {res}" + (f"\nReglas: {', '.join(cods)}" if cods else ""))
             self.ir("Buzón de facturas")
 
     def _factura_simulada(self, con_error: bool):
-        """Fabrica el XML que mandaría el proveedor de la OC y se lo da al robot R3."""
+        """Fabrica el XML que mandaría el proveedor de la OC y se lo da al robot R2."""
         folio = self.e_oc_buzon.get().strip().upper()
 
         def accion(cur):
@@ -492,30 +438,32 @@ class App(ctk.CTk):
             return procesar_factura(cur, xml, f"{folio}_{'error' if con_error else 'correcta'}.xml", folio)
         r = self.ejecutar(accion)
         if r:
-            messagebox.showinfo("Robot R3", f"Resultado: {r[0]}" + (f"\nReglas: {', '.join(r[1])}" if r[1] else ""))
+            messagebox.showinfo("Robot R2", f"Resultado: {r[0]}" + (f"\nReglas: {', '.join(r[1])}" if r[1] else ""))
             self.ir("Buzón de facturas")
 
     def v_proveedores(self):
-        self.titulo("Catálogo de proveedores (001-04)", "Dictamen automático: evaluación 001-02 de más de 70 puntos, "
-                                                        "vigente (menos de 1 año) y fuera de la lista 69-B del SAT. "
-                                                        "Comparte el código de Telegram con cada proveedor para que "
-                                                        "se vincule con el bot (/vincular código).")
-        provs = self.consultar(compras.evaluar_proveedores)
-        t = Tabla(self.contenido, [("Dictamen", 90), ("Proveedor", 290), ("RFC", 120), ("Puntaje", 70),
-                                   ("Evaluado", 95), ("Telegram", 150), ("Motivo", 330)], alto=8)
-        t.llenar(provs, lambda p: ["✔ Apto" if p["apto"] else "✘ No apto", p["razon_social"], p["rfc"],
-                                   p["puntaje_evaluacion"], fecha(p["fecha_evaluacion"]),
+        self.titulo("Catálogo de proveedores (001-04)", "Comparte el código de Telegram con cada proveedor para que "
+                                                        "se vincule con el bot (/vincular código): así recibe su orden "
+                                                        "de compra, envía su factura y consulta su pago.")
+        provs = self.consultar(compras.proveedores_activos)
+        t = Tabla(self.contenido, [("Proveedor", 320), ("RFC", 130), ("Correo", 260), ("Telegram", 150),
+                                   ("Lista 69-B", 120)], alto=8)
+        t.llenar(provs, lambda p: [p["razon_social"], p["rfc"], p["correo"] or "",
                                    "✔ Vinculado" if p["telegram_chat_id"] else f"Código {p['codigo_telegram']}",
-                                   p["motivo"]],
-                 etiqueta=lambda p: "VERDE" if p["apto"] else "ROJO")
+                                   f"⚠ {p['sat_69b']}" if p["sat_69b"] else "—"],
+                 etiqueta=lambda p: "ROJO" if p["sat_69b"] else "VERDE")
 
-    # --- Almacén y área
+    # --- Almacén: confirmar que el material llegó
     def v_recepcion(self):
-        self.titulo("Recepción en almacén", "Solo aparecen las OC con factura ya validada por el robot. Revisa el bien "
-                                            "físico y confirma: Logix genera la entrada y la salida y avisa al área.")
+        self.titulo("Recepción en almacén", "Solo aparecen las OC con factura ya validada. Revisa el material físico: "
+                                            "si llegó completo, confírmalo y Logix manda el expediente a Recursos "
+                                            "Financieros en ese momento. Si llegó mal, repórtalo y Logix avisa a "
+                                            "Adquisiciones.")
         filas = self.consultar(recepcion.por_recibir)
-        tabla = Tabla(self.contenido, [("OC", 120), ("Proveedor", 340), ("Importe", 110), ("Fecha OC", 130)])
-        tabla.llenar(filas, lambda f: [f["folio"], f["proveedor"], pesos(f["total"]), fecha(f["fecha"])])
+        tabla = Tabla(self.contenido, [("OC", 120), ("Proveedor", 300), ("Área", 260), ("Importe", 110),
+                                       ("Fecha OC", 130)])
+        tabla.llenar(filas, lambda f: [f["folio"], f["proveedor"], f["area_solicitante"], pesos(f["total"]),
+                                       fecha(f["fecha"])])
         f = self.fila_botones()
         fds = ctk.CTkCheckBox(f, text="Recibí la hoja de seguridad (FDS), si aplica")
         fds.pack(side="left")
@@ -524,51 +472,40 @@ class App(ctk.CTk):
             sel = tabla.seleccion()
             if sel:
                 self.ejecutar(lambda cur: recepcion.confirmar_recepcion(cur, self.usuario, sel[0]["id"], bool(fds.get())),
-                              lambda r: f"Recepción registrada. Entrada {r[0]} y salida {r[1]}.")
+                              lambda r: f"Recepción registrada (entrada {r[0]}, salida {r[1]}). "
+                                        "Logix armó el expediente y lo mandó a Recursos Financieros.")
                 self.ir("Recepción")
-        self.boton(f, "✔ El bien coincide: confirmar recepción", confirmar, color=VERDE).pack(side="right")
 
-    def v_recibir(self):
-        self.titulo("Recibir material", "Al recoger tu material, firma de recibido y califica al proveedor. "
-                                        "Con tu firma Logix arma el expediente y lo manda a autorización de pago.")
-        filas = self.consultar(lambda c: recepcion.por_firmar_area(c, self.usuario))
-        tabla = Tabla(self.contenido, [("OC", 120), ("Proveedor", 340), ("Importe", 110), ("Recibido en almacén", 160)])
-        tabla.llenar(filas, lambda f: [f["folio"], f["proveedor"], pesos(f["total"]), fecha(f["fecha_recepcion"])])
-        f = self.fila_botones()
-        ctk.CTkLabel(f, text="Calificación del proveedor:").pack(side="left")
-        calif = ctk.CTkSegmentedButton(f, values=["1", "2", "3", "4", "5"])
-        calif.set("5")
-        calif.pack(side="left", padx=8)
-
-        def firmar():
+        def problema():
             sel = tabla.seleccion()
             if sel:
-                self.ejecutar(lambda cur: recepcion.firmar_recibido(cur, self.usuario, sel[0]["id"], int(calif.get())),
-                              "Firma registrada. Logix integró el expediente y lo turnó a autorización de pago.")
-                self.ir("Recibir material")
-        self.boton(f, "✔ Firmar de recibido", firmar, color=VERDE).pack(side="right")
+                d = ctk.CTkInputDialog(title="Reportar problema",
+                                       text=f"¿Qué pasó con el material de {sel[0]['folio']}? "
+                                            "(falta algo, llegó dañado, es diferente…)").get_input()
+                if d is not None:
+                    self.ejecutar(lambda cur: recepcion.reportar_problema(cur, self.usuario, sel[0]["id"], d),
+                                  "Problema reportado. Logix avisó a Adquisiciones.")
+                    self.ir("Recepción")
+        self.boton(f, "✔ Llegó completo: confirmar", confirmar, color=VERDE).pack(side="right")
+        self.boton(f, "⚠ Reportar problema", problema, color=ROJO).pack(side="right", padx=8)
 
-    # --- Finanzas (R10)
+    # --- Recursos Financieros (comunicación con Adquisiciones y robot R5)
     def v_pagos(self):
-        self.titulo("Pagos", "La dispersión bancaria la hace Recursos Financieros fuera de Logix. Logix te avisa lo que "
-                             "viene en camino y concilia el archivo del banco para marcar los pagos.")
-        ctk.CTkLabel(self.contenido, text="En camino (pre-alerta)", font=(FUENTE, 15, "bold"),
-                     text_color=MARINO).pack(anchor="w")
-        t1 = Tabla(self.contenido, [("OC", 120), ("Proveedor", 340), ("Importe", 110), ("Firmas de pago", 120)], alto=4)
-        t1.llenar(self.consultar(pagos.en_camino), lambda f: [f["folio"], f["proveedor"], pesos(f["total"]),
-                                                              f"{f['firmas']} de 3"])
-        ctk.CTkLabel(self.contenido, text="Turnados para pago", font=(FUENTE, 15, "bold"),
-                     text_color=MARINO).pack(anchor="w")
-        t2 = Tabla(self.contenido, [("OC", 120), ("Proveedor", 300), ("Importe", 110), ("Turnado", 130),
-                                    ("Programado", 100)], alto=6)
-        t2.llenar(self.consultar(pagos.por_pagar), lambda f: [f["folio"], f["proveedor"], pesos(f["total"]),
-                                                              fecha(f["fecha_turno"]), fecha(f["fecha_programada"])])
+        self.titulo("Expedientes para pago", "Aquí llegan solos los expedientes completos (orden de compra + factura "
+                                             "validada + entrada de almacén). El pago lo hace Recursos Financieros "
+                                             "con su banco, fuera de Logix. Cada botón le avisa a Adquisiciones "
+                                             "(y al proveedor cuando le interesa).")
+        t2 = Tabla(self.contenido, [("OC", 120), ("Proveedor", 280), ("Área", 220), ("Importe", 110),
+                                    ("Llegó", 130), ("Programado", 100)], alto=8)
+        t2.llenar(self.consultar(pagos.por_pagar), lambda f: [f["folio"], f["proveedor"], f["area_solicitante"],
+                                                              pesos(f["total"]), fecha(f["fecha_turno"]),
+                                                              fecha(f["fecha_programada"])])
         f = self.fila_botones()
 
         def sel():
             s = t2.seleccion()
             if not s:
-                messagebox.showinfo("Logix", "Selecciona un expediente turnado.")
+                messagebox.showinfo("Logix", "Selecciona un expediente.")
             return s[0] if s else None
 
         def abrir():
@@ -581,9 +518,14 @@ class App(ctk.CTk):
             if s:
                 f_ = ctk.CTkInputDialog(title="Programar", text="Fecha de pago (AAAA-MM-DD):").get_input()
                 if f_:
-                    self.ejecutar(lambda cur: pagos.programar(cur, self.usuario, s["id"], date.fromisoformat(f_)),
-                                  "Pago programado.")
-                    self.ir("Pagos")
+                    try:
+                        dia = date.fromisoformat(f_.strip())
+                    except ValueError:
+                        messagebox.showwarning("Logix", "Escribe la fecha como AAAA-MM-DD, por ejemplo 2026-12-10.")
+                        return
+                    self.ejecutar(lambda cur: pagos.programar(cur, self.usuario, s["id"], dia),
+                                  "Pago programado. Logix avisó a Adquisiciones y al proveedor.")
+                    self.ir("Expedientes")
 
         def manual():
             s = sel()
@@ -591,16 +533,18 @@ class App(ctk.CTk):
                 ref = ctk.CTkInputDialog(title="Registrar pago", text="Referencia bancaria:").get_input()
                 if ref:
                     self.ejecutar(lambda cur: pagos.registrar_pago(cur, self.usuario, s["id"], ref, date.today()),
-                                  "Pago registrado y proveedor avisado.")
-                    self.ir("Pagos")
+                                  "Pago registrado. Logix avisó a Adquisiciones y al proveedor.")
+                    self.ir("Expedientes")
 
         def devolver():
             s = sel()
             if s:
-                m = ctk.CTkInputDialog(title="Devolver", text="Motivo:").get_input()
-                if m:
-                    self.ejecutar(lambda cur: pagos.devolver(cur, self.usuario, s["id"], m), "Devuelto a Adquisiciones.")
-                    self.ir("Pagos")
+                m = ctk.CTkInputDialog(title="Devolver a Adquisiciones",
+                                       text="¿Qué falta o qué está mal? (Adquisiciones lo leerá)").get_input()
+                if m is not None:
+                    self.ejecutar(lambda cur: pagos.devolver(cur, self.usuario, s["id"], m),
+                                  "Devuelto a Adquisiciones con tu motivo.")
+                    self.ir("Expedientes")
 
         def conciliar():
             ruta = filedialog.askopenfilename(title="Archivo del banco (CSV)", filetypes=[("CSV", "*.csv")])
@@ -610,19 +554,19 @@ class App(ctk.CTk):
                 import shutil
                 shutil.copy(ruta, destino / os.path.basename(ruta))
                 res = pagos.conciliar_carpeta()
-                messagebox.showinfo("Robot R10", "\n".join(res) or "Sin movimientos.")
-                self.ir("Pagos")
+                messagebox.showinfo("Robot R5", "\n".join(res) or "Sin movimientos.")
+                self.ir("Expedientes")
         self.boton(f, "Abrir expediente PDF", abrir, color=ACENTO).pack(side="left")
         self.boton(f, "Programar fecha", programar).pack(side="left", padx=6)
         self.boton(f, "Conciliar archivo del banco…", conciliar, color=CIAN).pack(side="left", padx=6)
         self.boton(f, "Registrar pago manual", manual).pack(side="left", padx=6)
-        self.boton(f, "Devolver", devolver, color=ROJO).pack(side="right")
+        self.boton(f, "↩ Devolver a Adquisiciones", devolver, color=ROJO).pack(side="right")
 
     # --- Seguimiento (todos)
     def v_folio(self):
-        self.titulo("Consultar folio", "Escribe un folio de requisición (REQ-), de orden (OC-) o un ticket de pago (PAG-).")
+        self.titulo("Consultar folio", "Escribe un folio de orden de compra (OC-) o un ticket de pago (PAG-).")
         f = self.fila_botones()
-        self.e_folio = ctk.CTkEntry(f, placeholder_text="REQ-2026-0001 / OC-2026-0001 / PAG-2026-0001", width=340)
+        self.e_folio = ctk.CTkEntry(f, placeholder_text="OC-2026-0001 / PAG-2026-0001", width=340)
         self.e_folio.pack(side="left")
         self.e_folio.bind("<Return>", lambda _: self._buscar_folio())
         self.boton(f, "Buscar", self._buscar_folio).pack(side="left", padx=8)
@@ -649,7 +593,7 @@ class App(ctk.CTk):
             ctk.CTkLabel(c, text=nombre, font=("Segoe UI", 10, "bold" if actual else "normal"),
                          text_color=MARINO if hecho else "#8A9BB0").pack()
         if s["etapa"] is None:
-            ctk.CTkLabel(self.res_folio, text="⚠ Detenido por una excepción: Adquisiciones ya fue avisada.",
+            ctk.CTkLabel(self.res_folio, text="⚠ Detenido fuera del camino normal: Adquisiciones ya fue avisada.",
                          text_color=ROJO).pack(anchor="w")
         tabla = Tabla(self.res_folio, [("Fecha", 140), ("Quién", 200), ("Qué pasó", 200), ("Detalle", 520)], alto=12)
         tabla.llenar(s["eventos"], lambda e: [fecha(e["fecha"]), e["actor"], e["accion"].replace("_", " ").title(),
@@ -689,10 +633,15 @@ class App(ctk.CTk):
         self.tarjeta(fila, f"{ind['pct_ordenes_con_excepcion']}%", "Órdenes con excepción")
         fila2 = ctk.CTkFrame(self.contenido, fg_color="transparent")
         fila2.pack(fill="x", pady=8)
-        self.tarjeta(fila2, ind["min_promedio_armado_expediente"] if ind["min_promedio_armado_expediente"] is not None
-                     else "—", "Min. para armar expediente", VERDE)
-        self.tarjeta(fila2, ind["ordenes_pagadas"], "Compras pagadas", VERDE)
-        self.tarjeta(fila2, ind["hojas_impresas"], "Hojas impresas", VERDE)
+        envio = ind["min_promedio_envio_a_finanzas"]
+        self.tarjeta(fila2, envio if envio is not None else "—", "Min. de almacén a Finanzas", VERDE)
+        horas = ind["horas_promedio_en_finanzas"]
+        self.tarjeta(fila2, horas if horas is not None else "—", "Horas en Finanzas hasta pago")
+        self.tarjeta(fila2, ind["devoluciones_de_finanzas"], "Devoluciones de Finanzas")
+        fila3 = ctk.CTkFrame(self.contenido, fg_color="transparent")
+        fila3.pack(fill="x", pady=8)
+        self.tarjeta(fila3, ind["ordenes_pagadas"], "Compras pagadas", VERDE)
+        self.tarjeta(fila3, ind["hojas_impresas"], "Hojas impresas", VERDE)
 
     def v_bitacora(self):
         self.titulo("Bitácora de auditoría", "Quién hizo qué y cuándo. No se puede editar ni borrar.")

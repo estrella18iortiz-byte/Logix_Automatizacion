@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="505" Fecha="2026-11-18T00:31:35"
+  Version="4.0" Serie="A" Folio="505" Fecha="2026-11-18T18:04:48"
   SubTotal="465.51" Moneda="MXN" Total="540.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
   <cfdi:Emisor Rfc="DFA050505EE5" Nombre="Distribuidora Fantasma S.A. de C.V." RegimenFiscal="601"/>
@@ -11,6 +11,6 @@
   </cfdi:Conceptos>
   <cfdi:Impuestos TotalImpuestosTrasladados="74.49"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="BD1024DA-6086-4555-936D-4D9C6543FF44" FechaTimbrado="2026-11-18T00:31:35"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="40C3F1B5-39F2-4E01-9ECC-D3BC522EF5C3" FechaTimbrado="2026-11-18T18:04:48"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

@@ -1,4 +1,4 @@
-"""Robot R3 · Lector de facturas CFDI 4.0.
+"""Robot R2 · Lector de facturas CFDI 4.0.
 
 Toda factura electrónica en México es un archivo XML con el mismo formato (CFDI),
 definido por el SAT. Por eso Logix puede leerla sin que nadie capture nada:

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-18T00:31:35"
+  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-18T18:04:48"
   SubTotal="1508.62" Moneda="MXN" Total="1750.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
   <cfdi:Emisor Rfc="COD030303CC3" Nombre="Comercial Demo S.A. de C.V." RegimenFiscal="601"/>
@@ -12,6 +12,6 @@
   </cfdi:Conceptos>
   <cfdi:Impuestos TotalImpuestosTrasladados="241.38"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="B799EBE9-4385-4625-BA9D-CC461C338A01" FechaTimbrado="2026-11-18T00:31:35"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="E3E5BB8C-B5E5-44BF-AC9E-B191868E84AA" FechaTimbrado="2026-11-18T18:04:48"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>
