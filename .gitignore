@@ -21,3 +21,6 @@ banco/
 .idea/
 Thumbs.db
 desktop.ini
+
+# ---- Memoria de Claude: se queda SOLO en esta PC, nunca se sube a internet ----
+memoria_claude/
