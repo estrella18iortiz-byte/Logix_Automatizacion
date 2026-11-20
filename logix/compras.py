@@ -1,11 +1,12 @@
 """Robot R1 · Envío de la orden de compra al proveedor.
 
-La compra YA fue aprobada y comprada (eso pasa antes de Logix). Adquisiciones solo
-registra la orden de compra: proveedor, área que pidió el material y qué se compró.
-Logix hace lo demás, sin que nadie lo pida:
+La petición YA fue aceptada y validada (eso pasa antes de Logix) y el proveedor es uno de
+los proveedores FIJOS ya avalados. Adquisiciones solo registra la orden de compra:
+proveedor, área que pidió el material y qué se compró. Logix hace lo demás, sin que nadie lo pida:
   1. Le pone folio (OC-2026-0001) y genera el PDF de la orden (formato 001-05) con QR.
-  2. Se lo manda al proveedor con las instrucciones para facturar.
-  3. La deja en «Esperando factura» para que el robot R2 la valide cuando llegue.
+  2. Se lo manda al proveedor por correo y Telegram, con el plazo de 7 días para entregar
+     el material y las instrucciones para facturar.
+  3. La deja en «Esperando material»: desde ese momento corre el plazo que vigila el robot R3.
 """
 from decimal import Decimal, InvalidOperation
 
@@ -14,11 +15,9 @@ from .errores import ReglaNegocio
 
 
 def proveedores_activos(cur) -> list[dict]:
-    """Proveedores que se pueden elegir. Si alguno está en la lista 69-B del SAT, se avisa."""
-    cur.execute("""SELECT p.id, p.razon_social, p.rfc, p.correo, p.codigo_telegram, p.telegram_chat_id,
-                          s.situacion AS sat_69b
-                   FROM proveedores p LEFT JOIN sat_lista_69b s ON s.rfc = p.rfc
-                   WHERE p.activo = 1 ORDER BY p.razon_social""")
+    """Catálogo de proveedores fijos (ya avalados) que se pueden elegir."""
+    cur.execute("""SELECT p.id, p.razon_social, p.rfc, p.correo, p.clabe, p.codigo_telegram, p.telegram_chat_id
+                   FROM proveedores p WHERE p.activo = 1 ORDER BY p.razon_social""")
     return db.filas(cur)
 
 
@@ -75,9 +74,11 @@ def enviar_a_proveedor(cur, oc_id: int):
     cur.execute("UPDATE ordenes_compra SET ruta_pdf = ? OUTPUT INSERTED.folio, INSERTED.proveedor_id, "
                 "INSERTED.total WHERE id = ?", str(ruta), oc_id)
     folio, proveedor_id, total = cur.fetchone()
-    db.bitacora(cur, "ROBOT-R1", "OC", oc_id, "ENVIA_OC_PROVEEDOR", nuevo="ESPERANDO_FACTURA")
+    dias = db.parametro(cur, "DIAS_ESPERA_MATERIAL")
+    db.bitacora(cur, "ROBOT-R1", "OC", oc_id, "ENVIA_OC_PROVEEDOR", nuevo="ESPERANDO_MATERIAL")
     avisos.a_proveedor(cur, proveedor_id, f"Orden de compra {folio}",
-                       f"Le enviamos la orden de compra {folio} por ${total:,.2f} (IVA incluido). "
-                       f"Para facturar: envíe el XML de su CFDI a nuestro buzón de facturas con «{folio}» "
-                       "en el asunto (o por Telegram, con el folio en el pie del archivo). "
-                       "Logix lo validará en automático y le responderá.")
+                       f"Le enviamos la orden de compra {folio} por ${total:,.2f} (IVA incluido) en PDF "
+                       f"({ruta.name}). Entregue el material en nuestro Almacén en un máximo de {dias} días; si no "
+                       "llega, la compra se cancela. Para facturar: envíe el XML de su CFDI por Telegram (con el "
+                       f"folio en el pie del archivo) o al buzón de facturas con «{folio}» en el asunto. Logix lo "
+                       "validará en automático antes de pagar.")

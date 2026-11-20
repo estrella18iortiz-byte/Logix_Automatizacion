@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="404" Fecha="2026-11-18T18:04:48"
-  SubTotal="1508.62" Moneda="MXN" Total="1750.00" TipoDeComprobante="I" Exportacion="01"
+  Version="4.0" Serie="A" Folio="404" Fecha="2026-11-19T22:32:39"
+  SubTotal="775.80" Moneda="MXN" Total="900.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
-  <cfdi:Emisor Rfc="CDE020202BB2" Nombre="Cómputo Demo S.A. de C.V." RegimenFiscal="601"/>
+  <cfdi:Emisor Rfc="ELD040404DD4" Nombre="Eléctrica Demo S.A. de C.V." RegimenFiscal="601"/>
   <cfdi:Receptor Rfc="XAXX010101000" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"
     RegimenFiscalReceptor="603" UsoCFDI="G03"/>
   <cfdi:Conceptos>
-    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="2" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Mouse óptico USB" ValorUnitario="129.31" Importe="258.62" ObjetoImp="02"/>
-    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="1" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Tóner para impresora láser" ValorUnitario="1250.00" Importe="1250.00" ObjetoImp="02"/>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="20" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Foco LED 12 W" ValorUnitario="38.79" Importe="775.80" ObjetoImp="02"/>
   </cfdi:Conceptos>
-  <cfdi:Impuestos TotalImpuestosTrasladados="241.38"/>
+  <cfdi:Impuestos TotalImpuestosTrasladados="124.20"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="C3BBD0BE-32D0-450E-88DC-14DECD1EB15E" FechaTimbrado="2026-11-18T18:04:48"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="CC178778-2FA1-4F12-AC44-DFA711F667EE" FechaTimbrado="2026-11-19T22:32:39"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

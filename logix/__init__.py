@@ -1,1 +1,1 @@
-"""Logix 2.0 · Seguimiento automatizado del expediente de compra directa."""
+"""Logix 3.0 · Automatización de compras repetitivas con proveedores fijos (diagrama 19-nov-2026)."""

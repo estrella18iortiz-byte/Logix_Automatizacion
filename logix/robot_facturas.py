@@ -1,14 +1,15 @@
-"""Robot R2 · Recibe facturas, las valida contra la OC y decide si avanza o se detiene.
+"""Robot R2 · Recibe facturas y las valida contra la OC ANTES de pagar.
 
 Flujo (sin captura humana):
-  1. El proveedor manda el XML (y PDF) con el folio de la OC en el asunto.
+  1. El proveedor manda el XML por Telegram o por correo, con el folio de la OC.
   2. Logix lee el CFDI y aplica las reglas de validacion.py.
-  3a. Si todo cuadra: guarda la factura, la OC pasa a FACTURA_VALIDADA y avisa
-      al proveedor (acuse) y a Almacén (ya puede recibir el material).
-  3b. Si algo no cuadra: guarda la factura como RECHAZADA, abre una excepción
-      para Adquisiciones y le explica al proveedor exactamente qué corregir.
+  3a. Si todo cuadra: guarda la factura como VALIDA y avisa al proveedor (acuse).
+      Si el material ya está en almacén, el expediente se va a Finanzas y se paga (R4 y R5).
+  3b. Si algo no cuadra: la factura queda RECHAZADA y la COMPRA SE CANCELA; se le explica
+      al proveedor por qué (correo y Telegram) y, si el material ya llegó, se le devuelve.
+      (Si la OC no existe o ya no espera factura, solo se rechaza el archivo.)
 
-Los avisos solo se ponen en la cola (tabla notificaciones); el robot R7 los envía.
+Los avisos solo se ponen en la cola (tabla notificaciones); el robot R6 los envía.
 """
 import email
 import imaplib
@@ -18,9 +19,9 @@ from datetime import datetime
 from email.header import decode_header
 from pathlib import Path
 
-from . import avisos, config, db
+from . import avisos, cancelacion, config, db, expediente
 from .cfdi import CfdiInvalido, leer_cfdi
-from .validacion import OrdenParaValidar, validar_factura
+from .validacion import OrdenParaValidar, cancela_la_compra, validar_factura
 
 ACTOR = "ROBOT-R2"
 PATRON_OC = re.compile(r"OC-\d{4}-\d{4}", re.IGNORECASE)
@@ -28,7 +29,6 @@ PATRON_OC = re.compile(r"OC-\d{4}-\d{4}", re.IGNORECASE)
 
 # ---------------------------------------------------------------- utilidades
 _encolar = avisos.encolar
-_avisar_rol = avisos.a_rol
 
 
 def _guardar_archivo(contenido: bytes, folio_oc: str, nombre: str) -> Path:
@@ -46,72 +46,75 @@ def procesar_factura(cur, contenido: bytes, nombre_archivo: str, folio_oc: str |
     folio_oc = (folio_oc or "").upper() or None
     ruta = _guardar_archivo(contenido, folio_oc, nombre_archivo)
 
-    # 1. Leer el CFDI
+    # 1. Leer el CFDI. Si el archivo ni siquiera es una factura, se rechaza el archivo
+    #    (no cuenta como factura recibida: el plazo de 48 h sigue corriendo).
     try:
         factura = leer_cfdi(contenido)
     except CfdiInvalido as e:
         mensaje = f"No se pudo leer su factura «{nombre_archivo}»: {e} Envíe el archivo XML original del SAT."
-        cur.execute("INSERT INTO excepciones (oc_id, tipo, detalle) VALUES "
-                    "((SELECT id FROM ordenes_compra WHERE folio = ?), 'CFDI_INVALIDO', ?)", folio_oc, mensaje)
-        db.bitacora(cur, ACTOR, "FACTURA", None, "RECHAZADA", detalle=mensaje)
-        _encolar(cur, "CORREO", correo_remitente, f"Factura no válida · {folio_oc or 'sin folio'}", mensaje)
+        db.bitacora(cur, ACTOR, "FACTURA", None, "ARCHIVO_RECHAZADO", detalle=mensaje)
+        cur.execute("SELECT proveedor_id FROM ordenes_compra WHERE folio = ?", folio_oc)
+        f = cur.fetchone()
+        if f:
+            avisos.a_proveedor(cur, f[0], f"Archivo no válido · {folio_oc}", mensaje, correo_remitente)
+        else:
+            _encolar(cur, "CORREO", correo_remitente, "Archivo no válido · sin folio", mensaje)
         return "RECHAZADA", ["CFDI_INVALIDO"]
 
     # 2. Consultar lo necesario para validar
-    cur.execute("""SELECT oc.id, oc.folio, oc.estatus, oc.total, p.rfc, p.razon_social, p.correo, p.id
+    cur.execute("""SELECT oc.id, oc.folio, oc.estatus, oc.total, p.rfc, p.razon_social, p.id,
+                          (SELECT COUNT(*) FROM facturas f WHERE f.oc_id = oc.id AND f.resultado = 'VALIDA')
                    FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
                    WHERE oc.folio = ?""", folio_oc)
     fila = cur.fetchone()
     oc = None
     if fila:
-        oc_id, folio, estatus, total, rfc_prov, razon, correo_prov, prov_id = fila
-        oc = OrdenParaValidar(folio, estatus, total, rfc_prov, razon)
+        oc_id, folio, estatus, total, rfc_prov, razon, prov_id, n_validas = fila
+        oc = OrdenParaValidar(folio, estatus, total, rfc_prov, razon, n_validas > 0)
     cur.execute("SELECT COUNT(*) FROM facturas WHERE uuid = ? AND resultado = 'VALIDA'", factura.uuid)
     uuid_repetido = cur.fetchone()[0] > 0
-    cur.execute("SELECT situacion FROM sat_lista_69b WHERE rfc = ?", factura.rfc_emisor)
-    s = cur.fetchone()
-    situacion_69b = s[0] if s else None
 
-    hallazgos = validar_factura(factura, oc, db.parametro(cur, "RFC_INSTITUCION"),
-                                uuid_repetido, situacion_69b)
+    hallazgos = validar_factura(factura, oc, db.parametro(cur, "RFC_INSTITUCION"), uuid_repetido)
     resultado = "RECHAZADA" if hallazgos else "VALIDA"
     detalle = " | ".join(h.mensaje for h in hallazgos) or "Coincide con la OC"
 
     # 3. Guardar la factura (válida o no: todo queda registrado)
-    cur.execute("""INSERT INTO facturas (oc_id, uuid, rfc_emisor, rfc_receptor, serie_folio, total, fecha_cfdi,
-                                         ruta_xml, resultado, detalle)
-                   OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+    cur.execute("""INSERT INTO facturas (oc_id, uuid, rfc_emisor, rfc_receptor, serie_folio, total, moneda,
+                                         fecha_cfdi, ruta_xml, resultado, detalle)
+                   OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 oc_id if oc else None, factura.uuid, factura.rfc_emisor, factura.rfc_receptor,
-                factura.serie_folio, factura.total, factura.fecha, str(ruta), resultado, detalle[:1000])
+                factura.serie_folio, factura.total, factura.moneda[:3], factura.fecha, str(ruta), resultado,
+                detalle[:1000])
     factura_id = cur.fetchone()[0]
     db.bitacora(cur, ACTOR, "FACTURA", factura_id, resultado, nuevo=factura.uuid, detalle=detalle)
 
-    destino_proveedor = correo_remitente or (correo_prov if oc else None)
-
     if resultado == "VALIDA":
-        cur.execute("UPDATE ordenes_compra SET estatus = 'FACTURA_VALIDADA' WHERE id = ?", oc_id)
-        db.bitacora(cur, ACTOR, "OC", oc_id, "CAMBIO_ESTATUS", oc.estatus, "FACTURA_VALIDADA")
-        acuse = (f"Hola, {oc.nombre_proveedor}. Recibimos y validamos su factura {factura.serie_folio} "
-                 f"(folio fiscal {factura.uuid}) por ${factura.total:,.2f} para la OC {oc.folio}. "
-                 f"Siguiente paso: entrega del material en Almacén. Consulte su avance con el folio {oc.folio}.")
-        avisos.a_proveedor(cur, prov_id, f"Factura validada · {oc.folio}", acuse, destino_proveedor)
-        _avisar_rol(cur, "ALMACEN", f"Factura validada · {oc.folio}",
-                    f"La factura de la OC {oc.folio} ({oc.nombre_proveedor}) ya fue validada. "
-                    "Cuando llegue el material, revíselo y confirme la recepción en Logix.")
-    else:
-        for h in hallazgos:
-            cur.execute("INSERT INTO excepciones (oc_id, tipo, detalle) VALUES (?, ?, ?)",
-                        oc_id if oc else None, h.codigo, h.mensaje)
-        texto = (f"Su factura {factura.serie_folio} para la OC {folio_oc or '(sin folio)'} NO fue aceptada:\n- "
-                 + "\n- ".join(h.mensaje for h in hallazgos)
-                 + "\nPor favor envíe la factura corregida respondiendo a este correo.")
-        if oc:
-            avisos.a_proveedor(cur, prov_id, f"Factura rechazada · {folio_oc}", texto, destino_proveedor)
+        db.bitacora(cur, ACTOR, "OC", oc_id, "FACTURA_VALIDADA", nuevo=factura.uuid,
+                    detalle=f"{factura.serie_folio} ${factura.total:,.2f}")
+        if oc.estatus == "MATERIAL_RECIBIDO":
+            siguiente = "El material ya está en almacén: su expediente pasa a Recursos Financieros para el pago."
         else:
-            _encolar(cur, "CORREO", destino_proveedor, "Factura rechazada · sin folio", texto)
-        _avisar_rol(cur, "ADQUISICIONES", f"Excepción en factura · {folio_oc or 'sin folio'}",
-                    f"Logix detuvo una factura de {factura.nombre_emisor} (RFC {factura.rfc_emisor}):\n- "
-                    + "\n- ".join(h.mensaje for h in hallazgos))
+            siguiente = "Siguiente paso: entregar el material en nuestro Almacén."
+        acuse = (f"Hola, {oc.nombre_proveedor}. Recibimos y validamos su factura {factura.serie_folio} "
+                 f"(folio fiscal {factura.uuid}) por ${factura.total:,.2f} para la OC {oc.folio}. {siguiente}")
+        avisos.a_proveedor(cur, prov_id, f"Factura validada · {oc.folio}", acuse, correo_remitente)
+        if oc.estatus == "MATERIAL_RECIBIDO":
+            # Ya están la factura y el material: R4 arma el expediente y R5 paga.
+            expediente.armar_y_enviar(cur, oc_id)
+        return resultado, []
+
+    lista = "\n- " + "\n- ".join(h.mensaje for h in hallazgos)
+    if oc and cancela_la_compra(hallazgos):
+        # Regla del diagrama: factura que no pasa la validación = compra cancelada.
+        cancelacion.cancelar(cur, oc_id, "FACTURA_INVALIDA",
+                             f"La factura {factura.serie_folio} no pasó la validación:{lista}", ACTOR)
+    elif oc:
+        avisos.a_proveedor(cur, prov_id, f"Factura rechazada · {folio_oc}",
+                           f"Su factura {factura.serie_folio} para la OC {folio_oc} no se aceptó:{lista}",
+                           correo_remitente)
+    else:
+        _encolar(cur, "CORREO", correo_remitente, "Factura rechazada · sin folio",
+                 f"Su factura {factura.serie_folio} no se aceptó:{lista}")
     return resultado, [h.codigo for h in hallazgos]
 
 

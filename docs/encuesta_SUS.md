@@ -1,6 +1,7 @@
-# Prueba de usabilidad SUS · Logix 2.0
+# Prueba de usabilidad SUS · Logix 3.0
 
-**Para quién:** 5 personas o más (compañeros, personal del Tec). **No anotes nombres**: solo «Participante 1, 2, 3…».
+**Para quién:** al menos **5 usuarios reales** (lo pide la práctica): personal que participa en el proceso. Lo ideal es al menos 1 de cada departamento: **Adquisiciones, Almacén y Recursos Financieros**; si no se completan 5, suma a otro personal del Tec que haga compras. Todas las personas hacen las 5 tareas. **No anotes nombres**: solo «Participante 1, 2, 3…» y su departamento. Meta: SUS ≥ 70.
+**Versión para imprimir:** `docs/Encuesta_SUS_Logix.docx`.
 **Duración:** unos 10 minutos por persona. Antes de empezar, corre `REINICIAR_DATOS.bat` y abre `INICIAR_LOGIX.bat`.
 Contraseña de todos los usuarios: `logix2026`.
 
@@ -12,8 +13,8 @@ Contraseña de todos los usuarios: `logix2026`.
 |---|---|---|---|---|
 | 1 | «Registra una compra ya aprobada: 5 *Cable HDMI 2 m* a $180 con el proveedor *Cómputo Demo*, para el *Departamento de Ciencias Básicas*. Envíasela al proveedor.» | `adquisiciones` | | |
 | 2 | «En el Buzón de facturas, simula que el proveedor manda la **factura correcta** de esa orden.» | `adquisiciones` | | |
-| 3 | «Llegó el material de esa orden y está completo. Confírmalo.» | `almacen` | | |
-| 4 | «Al expediente le falta algo: **devuélvelo** a Adquisiciones con un motivo. Después, como Adquisiciones, **reenvíalo** corregido.» | `finanzas` y `adquisiciones` | | |
+| 3 | «Eres el Jefe de Almacén: llegó el material de esa orden y está bien. Confírmalo (Logix paga solo).» | `almacen` | | |
+| 4 | «La orden *OC-2026-0002* llegó en mal estado: haz la **devolución** escribiendo la razón.» | `almacen` | | |
 | 5 | «Consulta en qué etapa va esa orden de compra.» | cualquiera | | |
 
 Notas de lo que se le complicó a la persona:

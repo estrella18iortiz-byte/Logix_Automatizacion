@@ -1,8 +1,9 @@
 /* ==========================================================================
-   LOGIX 2.0 · Base de datos logix_db
-   Comunicación automatizada entre Adquisiciones y Recursos Financieros:
-   la compra YA está aprobada y comprada; Logix mueve la orden de compra,
-   la factura, la confirmación de almacén y el pago entre los departamentos.
+   LOGIX 3.0 · Base de datos logix_db
+   Tareas repetitivas con proveedores FIJOS y ya avalados (diagrama 19-nov-2026).
+   La compra YA está aprobada. Logix manda la OC, espera el material (máx. 7 días),
+   valida la factura, arma el expediente para Recursos Financieros y PAGA en
+   automático a través de un BANCO EMULADO. Avisa por correo y Telegram.
 
    Cómo correrlo (desde la carpeta logix_app):
        python generar_datos.py      (o doble clic en REINICIAR_DATOS.bat)
@@ -25,7 +26,7 @@ GO
 
 /* ---------- 1. Configuración ------------------------------------------------
    Parámetros que el área puede cambiar sin tocar el código:
-   fecha límite de pagos de diciembre, días del semáforo, horas para recordar. */
+   días de espera del material, horas para la factura, reintentos del banco... */
 CREATE TABLE parametros (
     clave        VARCHAR(50)  NOT NULL PRIMARY KEY,
     valor        VARCHAR(200) NOT NULL,
@@ -38,7 +39,7 @@ CREATE TABLE areas (
     nombre  VARCHAR(120) NOT NULL UNIQUE
 );
 
-/* rol: ADQUISICIONES, ALMACEN, FINANZAS, ADMIN */
+/* rol: ADQUISICIONES, ALMACEN (Jefe de Almacén), FINANZAS, ADMIN */
 CREATE TABLE usuarios (
     id             INT IDENTITY PRIMARY KEY,
     nombre         VARCHAR(120) NOT NULL,
@@ -54,37 +55,47 @@ CREATE TABLE usuarios (
     activo         BIT NOT NULL DEFAULT 1           -- sin borrado físico (RNF-04)
 );
 
-/* ---------- 3. Proveedores --------------------------------------------------- */
+/* ---------- 3. Proveedores fijos (ya avalados por el Tec) --------------------
+   Ya no se revisa la lista 69-B: el catálogo solo tiene proveedores aprobados.
+   La CLABE es la cuenta a la que el banco emulado transfiere el pago. */
 CREATE TABLE proveedores (
     id                  INT IDENTITY PRIMARY KEY,
     razon_social        VARCHAR(150) NOT NULL,
     rfc                 VARCHAR(13)  NOT NULL UNIQUE,
     correo              VARCHAR(120) NULL,
+    clabe               VARCHAR(18)  NOT NULL,       -- cuenta interbancaria (18 dígitos)
     telegram_chat_id    BIGINT       NULL,
     codigo_telegram     CHAR(6)      NULL,
     activo              BIT NOT NULL DEFAULT 1
 );
 
-/* Copia SIMULADA de la lista pública del SAT (art. 69-B, EFOS). */
-CREATE TABLE sat_lista_69b (
-    rfc        VARCHAR(13)  NOT NULL PRIMARY KEY,
-    situacion  VARCHAR(40)  NOT NULL                 -- Presunto, Definitivo...
-);
-
-/* ---------- 4. Orden de compra (ya aprobada y comprada) --------------------
-   Adquisiciones la registra en Logix cuando la compra YA fue autorizada.
-   Desde aquí empieza la automatización. */
+/* ---------- 4. Orden de compra (petición ya aceptada y validada) ------------
+   Adquisiciones la registra cuando la compra YA fue autorizada.
+   Desde aquí empieza la automatización.
+   estatus:
+     ESPERANDO_MATERIAL  OC enviada; el material tiene 7 días para llegar
+     MATERIAL_RECIBIDO   el Jefe de Almacén confirmó; se espera la factura (48 h)
+     EN_FINANZAS         expediente completo en Recursos Financieros; pago en curso
+     PAGO_CON_ERROR      el banco respondió con un error; Finanzas decide
+     PAGADA              el banco confirmó el pago (fin)
+     CANCELADA           devolución, plazo vencido, factura inválida o pago cancelado (fin) */
 CREATE TABLE ordenes_compra (
     id            INT IDENTITY PRIMARY KEY,
     folio         VARCHAR(20)   NOT NULL UNIQUE,     -- OC-2026-0001
     proveedor_id  INT NOT NULL REFERENCES proveedores(id),
     area_solicitante VARCHAR(120) NOT NULL,          -- área que pidió el material
     total         DECIMAL(12,2) NOT NULL,            -- con IVA
-    estatus       VARCHAR(20)   NOT NULL DEFAULT 'ESPERANDO_FACTURA',
-                  -- ESPERANDO_FACTURA, FACTURA_VALIDADA, EN_FINANZAS, DEVUELTA, PAGADA, DETENIDA
-    fecha         DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
+    estatus       VARCHAR(20)   NOT NULL DEFAULT 'ESPERANDO_MATERIAL',
+    fecha         DATETIME2     NOT NULL DEFAULT SYSDATETIME(),   -- envío de la OC: inicia los 7 días
     registrada_por INT NULL REFERENCES usuarios(id),
-    ruta_pdf      VARCHAR(300)  NULL
+    ruta_pdf      VARCHAR(300)  NULL,
+    -- Cancelación (si ocurre): por qué, cuándo y si hay material que regresar al proveedor.
+    tipo_cancelacion   VARCHAR(30)   NULL,   -- DEVOLUCION_ALMACEN, MATERIAL_NO_LLEGO, FACTURA_INVALIDA,
+                                             -- FACTURA_NO_LLEGO, PAGO_CANCELADO
+    motivo_cancelacion VARCHAR(500)  NULL,
+    fecha_cancelacion  DATETIME2     NULL,
+    material_por_devolver BIT NOT NULL DEFAULT 0,   -- 1 = el material está en almacén y debe regresarse
+    material_devuelto     BIT NOT NULL DEFAULT 0
 );
 
 /* Renglones de la orden de compra (qué se compró). */
@@ -98,7 +109,7 @@ CREATE TABLE oc_detalle (
     importe          AS (cantidad * precio_unitario) PERSISTED
 );
 
-/* ---------- 5. Factura CFDI · la lee el robot R2 ----------------------------- */
+/* ---------- 5. Factura CFDI · la valida el robot R2 antes de pagar ----------- */
 CREATE TABLE facturas (
     id            INT IDENTITY PRIMARY KEY,
     oc_id         INT NULL REFERENCES ordenes_compra(id),
@@ -107,9 +118,9 @@ CREATE TABLE facturas (
     rfc_receptor  VARCHAR(13)   NOT NULL,
     serie_folio   VARCHAR(60)   NULL,
     total         DECIMAL(12,2) NOT NULL,
+    moneda        CHAR(3)       NOT NULL DEFAULT 'MXN',
     fecha_cfdi    DATETIME2     NULL,
     ruta_xml      VARCHAR(300)  NOT NULL,
-    ruta_pdf      VARCHAR(300)  NULL,
     resultado     VARCHAR(12)   NOT NULL,            -- VALIDA / RECHAZADA
     detalle       VARCHAR(1000) NULL,
     recibida      DATETIME2     NOT NULL DEFAULT SYSDATETIME()
@@ -117,19 +128,19 @@ CREATE TABLE facturas (
 -- Una factura válida no puede registrarse dos veces (UUID repetido).
 CREATE UNIQUE INDEX ux_facturas_uuid_valida ON facturas(uuid) WHERE resultado = 'VALIDA';
 
-/* ---------- 6. Recepción en almacén · confirma que el material llegó -------- */
+/* ---------- 6. Recepción en almacén · el Jefe de Almacén confirma ----------
+   Solo existe si el material llegó BIEN (la devolución se guarda como cancelación). */
 CREATE TABLE recepciones (
     id                 INT IDENTITY PRIMARY KEY,
     oc_id              INT NOT NULL UNIQUE REFERENCES ordenes_compra(id),
     almacen_id         INT NOT NULL REFERENCES usuarios(id),
-    fecha_recepcion    DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+    fecha_recepcion    DATETIME2 NOT NULL DEFAULT SYSDATETIME(),   -- inicia las 48 h de la factura
     folio_entrada      VARCHAR(20) NOT NULL,         -- entrada y salida simultánea
     folio_salida       VARCHAR(20) NOT NULL,
-    fds_entregada      BIT NOT NULL DEFAULT 0,       -- hoja de seguridad, si aplica
     observaciones      VARCHAR(500) NULL
 );
 
-/* ---------- 7. Expediente digital · lo arma el robot R3 ---------------------- */
+/* ---------- 7. Expediente digital para Recursos Financieros (robot R4) ------- */
 CREATE TABLE expedientes (
     id            INT IDENTITY PRIMARY KEY,
     oc_id         INT NOT NULL UNIQUE REFERENCES ordenes_compra(id),
@@ -139,28 +150,45 @@ CREATE TABLE expedientes (
     fecha         DATETIME2    NOT NULL DEFAULT SYSDATETIME()
 );
 
-/* ---------- 8. Pago · Recursos Financieros paga fuera de Logix --------------- */
+/* ---------- 8. Pago automático (robot R5) ------------------------------------
+   Una fila por OC que llegó a Finanzas. Guarda la última respuesta del banco emulado.
+   estatus: EN_PROCESO, REINTENTO (error general: se reintenta solo), ERROR (lo decide
+            Finanzas), CONFIRMADO (el banco pagó), CANCELADO (Finanzas canceló). */
 CREATE TABLE pagos (
     id                INT IDENTITY PRIMARY KEY,
     oc_id             INT NOT NULL UNIQUE REFERENCES ordenes_compra(id),
     fecha_turno       DATETIME2 NOT NULL DEFAULT SYSDATETIME(),   -- llegó a Finanzas
-    fecha_programada  DATE NULL,
-    referencia        VARCHAR(40) NULL,
-    fecha_pago        DATE NULL,
-    conciliado        BIT NOT NULL DEFAULT 0
+    monto             DECIMAL(12,2) NOT NULL,
+    moneda            CHAR(3)       NOT NULL DEFAULT 'MXN',
+    estatus           VARCHAR(12)   NOT NULL DEFAULT 'EN_PROCESO',
+    intentos          TINYINT       NOT NULL DEFAULT 0,
+    codigo_error      VARCHAR(30)   NULL,     -- ERROR_GENERAL, SALDO_INSUFICIENTE, MONTO_INCORRECTO,
+                                              -- DIVISA_INCORRECTA, CUENTA_INVALIDA
+    detalle_error     VARCHAR(500)  NULL,
+    referencia_banco  VARCHAR(40)   NULL,     -- clave de rastreo SPEI cuando el banco confirma
+    fecha_pago        DATETIME2     NULL
 );
 
-/* ---------- 9. Excepciones · lo único que revisa una persona -----------------
-   Incluye las devoluciones de Finanzas a Adquisiciones (DEVUELTA_FINANZAS). */
-CREATE TABLE excepciones (
-    id          INT IDENTITY PRIMARY KEY,
-    oc_id       INT NULL REFERENCES ordenes_compra(id),
-    tipo        VARCHAR(40)   NOT NULL,              -- IMPORTE_DISTINTO, DEVUELTA_FINANZAS...
-    detalle     VARCHAR(1000) NOT NULL,
-    estatus     VARCHAR(10)   NOT NULL DEFAULT 'ABIERTA',   -- ABIERTA, RESUELTA
-    fecha       DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
-    resuelta_por INT NULL REFERENCES usuarios(id),
-    fecha_resuelta DATETIME2 NULL
+/* ---------- 9. BANCO EMULADO ---------------------------------------------------
+   Simula al banco del Tec (NO es un banco real). Tiene una cuenta con saldo y
+   registra cada transferencia que Logix le pide, con su respuesta. */
+CREATE TABLE banco_cuenta (
+    id               INT PRIMARY KEY,                 -- siempre 1 (la cuenta del Tec)
+    titular          VARCHAR(150)  NOT NULL,
+    saldo            DECIMAL(14,2) NOT NULL,
+    limite_operacion DECIMAL(14,2) NOT NULL,          -- monto máximo por transferencia
+    falla_simulada   VARCHAR(30)   NOT NULL DEFAULT 'NINGUNA'   -- para demostrar los errores
+);
+
+CREATE TABLE banco_movimientos (
+    id             INT IDENTITY PRIMARY KEY,
+    fecha          DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
+    referencia     VARCHAR(20)   NOT NULL,          -- folio de la OC que se paga
+    clabe_destino  VARCHAR(18)   NOT NULL,
+    monto          DECIMAL(12,2) NOT NULL,
+    moneda         CHAR(3)       NOT NULL,
+    resultado      VARCHAR(30)   NOT NULL,          -- CONFIRMADO o el código del error
+    clave_rastreo  VARCHAR(40)   NULL               -- solo si se confirmó
 );
 
 /* ---------- 10. Notificaciones (correo y Telegram) con reintentos ------------ */
@@ -170,7 +198,7 @@ CREATE TABLE notificaciones (
     destinatario  VARCHAR(120)  NOT NULL,
     asunto        NVARCHAR(200)  NULL,
     mensaje       NVARCHAR(2000) NOT NULL,
-    estatus       VARCHAR(10)   NOT NULL DEFAULT 'PENDIENTE', -- PENDIENTE, ENVIADA, FALLIDA
+    estatus       VARCHAR(10)   NOT NULL DEFAULT 'PENDIENTE', -- PENDIENTE, ENVIADA, SIMULADA, FALLIDA
     intentos      TINYINT       NOT NULL DEFAULT 0,
     error         VARCHAR(500)  NULL,
     creada        DATETIME2     NOT NULL DEFAULT SYSDATETIME(),

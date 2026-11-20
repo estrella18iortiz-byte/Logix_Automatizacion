@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Serie="A" Folio="505" Fecha="2026-11-19T22:32:39"
+  SubTotal="362.06" Moneda="MXN" Total="420.00" TipoDeComprobante="E" Exportacion="01"
+  MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
+  <cfdi:Emisor Rfc="PDA010101AA1" Nombre="Papelería Demo del Altiplano S.A. de C.V." RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="ITM990101AB1" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"
+    RegimenFiscalReceptor="603" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="2" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Folders tamaño carta (paquete 100)" ValorUnitario="181.03" Importe="362.06" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="57.94"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="200404A1-6A92-46FD-9EC2-62F5B9A18501" FechaTimbrado="2026-11-19T22:32:39"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

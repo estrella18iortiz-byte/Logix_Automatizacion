@@ -41,6 +41,7 @@ class Factura:
     subtotal: Decimal
     total: Decimal
     tipo: str                       # I = ingreso (factura normal)
+    moneda: str = "MXN"             # el banco solo acepta pagos en pesos (MXN)
     conceptos: list[Concepto] = field(default_factory=list)
 
 
@@ -101,5 +102,6 @@ def leer_cfdi(contenido: bytes) -> Factura:
         subtotal=_dec(raiz.get("SubTotal"), "SubTotal"),
         total=_dec(raiz.get("Total"), "Total"),
         tipo=raiz.get("TipoDeComprobante", ""),
+        moneda=(raiz.get("Moneda") or "MXN").upper(),
         conceptos=conceptos,
     )

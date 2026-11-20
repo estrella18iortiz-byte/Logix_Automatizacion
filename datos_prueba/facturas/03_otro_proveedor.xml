@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-18T18:04:48"
-  SubTotal="1508.62" Moneda="MXN" Total="1750.00" TipoDeComprobante="I" Exportacion="01"
+  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-19T22:32:39"
+  SubTotal="465.51" Moneda="MXN" Total="540.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
-  <cfdi:Emisor Rfc="COD030303CC3" Nombre="Comercial Demo S.A. de C.V." RegimenFiscal="601"/>
+  <cfdi:Emisor Rfc="PDA010101AA1" Nombre="Papelería Demo del Altiplano S.A. de C.V." RegimenFiscal="601"/>
   <cfdi:Receptor Rfc="ITM990101AB1" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"
     RegimenFiscalReceptor="603" UsoCFDI="G03"/>
   <cfdi:Conceptos>
-    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="2" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Mouse óptico USB" ValorUnitario="129.31" Importe="258.62" ObjetoImp="02"/>
-    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="1" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Tóner para impresora láser" ValorUnitario="1250.00" Importe="1250.00" ObjetoImp="02"/>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="3" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Cable HDMI 2 m" ValorUnitario="155.17" Importe="465.51" ObjetoImp="02"/>
   </cfdi:Conceptos>
-  <cfdi:Impuestos TotalImpuestosTrasladados="241.38"/>
+  <cfdi:Impuestos TotalImpuestosTrasladados="74.49"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="E3E5BB8C-B5E5-44BF-AC9E-B191868E84AA" FechaTimbrado="2026-11-18T18:04:48"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="85940156-7B9B-402A-BB8A-8332867FE5FE" FechaTimbrado="2026-11-19T22:32:39"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

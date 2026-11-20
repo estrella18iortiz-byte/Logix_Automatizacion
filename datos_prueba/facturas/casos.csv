@@ -1,10 +1,11 @@
-orden,archivo,folio_oc,resultado_esperado,regla
-1,01_correcta.xml,OC-2026-0001,VALIDA,—
-2,02_importe_distinto.xml,OC-2026-0002,RECHAZADA,IMPORTE_DISTINTO
-3,03_otro_proveedor.xml,OC-2026-0002,RECHAZADA,RFC_EMISOR
-4,04_receptor_equivocado.xml,OC-2026-0002,RECHAZADA,RFC_RECEPTOR
-5,05_proveedor_69b.xml,OC-2026-0003,RECHAZADA,SAT_69B
-6,06_duplicada.xml,OC-2026-0001,RECHAZADA,UUID_DUPLICADO / OC_NO_ESPERA_FACTURA
-7,07_oc_inexistente.xml,OC-2026-9999,RECHAZADA,OC_INEXISTENTE
-8,08_no_es_cfdi.xml,OC-2026-0002,RECHAZADA,CFDI_INVALIDO
-9,09_correcta_oc2.xml,OC-2026-0002,VALIDA,—
+orden,archivo,folio_oc,resultado_esperado,regla,cancela_compra
+1,01_correcta.xml,OC-2026-0001,VALIDA,—,NO
+2,02_importe_distinto.xml,OC-2026-0002,RECHAZADA,IMPORTE_DISTINTO,SI
+3,03_otro_proveedor.xml,OC-2026-0003,RECHAZADA,RFC_EMISOR,SI
+4,04_receptor_equivocado.xml,OC-2026-0004,RECHAZADA,RFC_RECEPTOR,SI
+5,05_nota_de_credito.xml,OC-2026-0005,RECHAZADA,TIPO_COMPROBANTE,SI
+6,06_duplicada.xml,OC-2026-0001,RECHAZADA,OC_NO_ESPERA_FACTURA / UUID_DUPLICADO,NO
+7,07_oc_inexistente.xml,OC-2026-9999,RECHAZADA,OC_INEXISTENTE,NO
+8,08_no_es_cfdi.xml,OC-2026-0006,RECHAZADA,CFDI_INVALIDO,NO
+9,09_correcta_oc6.xml,OC-2026-0006,VALIDA,—,NO
+10,10_oc_ya_cancelada.xml,OC-2026-0002,RECHAZADA,OC_NO_ESPERA_FACTURA,NO

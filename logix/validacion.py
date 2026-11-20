@@ -1,8 +1,13 @@
-"""Robot R2 · Reglas para aceptar o rechazar una factura.
+"""Robot R2 · Reglas para aceptar o rechazar una factura ANTES de pagar.
 
 Son reglas deterministas (siempre dan el mismo resultado con los mismos datos),
 para que el resultado sea predecible y auditable. La política es ESTRICTA:
 el importe de la factura debe ser exactamente igual al de la Orden de Compra.
+Como los proveedores son fijos y ya avalados, ya no se consulta la lista 69-B del SAT.
+
+Si la factura de una compra en curso NO pasa, la compra se CANCELA (decisión del
+diagrama del 19-nov-2026). Excepciones: si la OC no existe o ya no espera factura,
+solo se rechaza el archivo (no hay compra en curso que cancelar).
 
 Las funciones de aquí no tocan la base de datos: reciben los datos ya consultados.
 Así se pueden probar solas (tests/test_validacion.py).
@@ -12,8 +17,10 @@ from decimal import Decimal
 
 from .cfdi import Factura
 
-# Estatus de la OC en los que se espera recibir la factura.
-ESTATUS_QUE_ESPERAN_FACTURA = {"ESPERANDO_FACTURA"}
+# Estatus de la OC en los que se acepta la factura (puede llegar antes o después del material).
+ESTATUS_QUE_ESPERAN_FACTURA = {"ESPERANDO_MATERIAL", "MATERIAL_RECIBIDO"}
+# Hallazgos que NO cancelan la compra (solo se rechaza el archivo).
+NO_CANCELAN = {"OC_INEXISTENTE", "OC_NO_ESPERA_FACTURA"}
 
 
 @dataclass
@@ -24,11 +31,12 @@ class OrdenParaValidar:
     total: Decimal
     rfc_proveedor: str
     nombre_proveedor: str
+    ya_tiene_factura_valida: bool = False
 
 
 @dataclass
 class Hallazgo:
-    codigo: str        # se guarda en excepciones.tipo
+    codigo: str        # código de la regla (p. ej. IMPORTE_DISTINTO)
     mensaje: str       # se le manda tal cual al proveedor y a Adquisiciones
 
 
@@ -41,7 +49,6 @@ def validar_factura(
     oc: OrdenParaValidar | None,
     rfc_institucion: str,
     uuid_ya_registrado: bool,
-    situacion_69b: str | None,
 ) -> list[Hallazgo]:
     """Regresa la lista de problemas encontrados. Lista vacía = factura válida."""
     h: list[Hallazgo] = []
@@ -59,6 +66,9 @@ def validar_factura(
     if oc.estatus not in ESTATUS_QUE_ESPERAN_FACTURA:
         h.append(Hallazgo("OC_NO_ESPERA_FACTURA",
                           f"La OC {oc.folio} no está esperando factura (estatus actual: {oc.estatus})."))
+    elif oc.ya_tiene_factura_valida:
+        h.append(Hallazgo("OC_NO_ESPERA_FACTURA",
+                          f"La OC {oc.folio} ya tiene una factura validada; no se necesita otra."))
 
     if uuid_ya_registrado:
         h.append(Hallazgo("UUID_DUPLICADO",
@@ -79,9 +89,9 @@ def validar_factura(
                           f"El importe no coincide. OC {oc.folio}: {_pesos(oc.total)} / "
                           f"Factura: {_pesos(factura.total)}. Se requiere una factura corregida."))
 
-    if situacion_69b:
-        h.append(Hallazgo("SAT_69B",
-                          f"El RFC {factura.rfc_emisor} aparece en la lista 69-B del SAT "
-                          f"(situación: {situacion_69b}). No se puede continuar el trámite."))
-
     return h
+
+
+def cancela_la_compra(hallazgos: list[Hallazgo]) -> bool:
+    """¿Estos problemas obligan a cancelar la compra? (sí, salvo que no haya compra en curso)."""
+    return bool(hallazgos) and not any(x.codigo in NO_CANCELAN for x in hallazgos)

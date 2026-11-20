@@ -1,4 +1,4 @@
-"""Pruebas del bot de Telegram (R8) con un Telegram FALSO: no necesitan internet ni token.
+"""Pruebas del bot de Telegram (R7) con un Telegram FALSO: no necesitan internet ni token.
 Usan la base logix_db (corre antes generar_datos.py). Todo se deshace al final (rollback).
 
     python -m unittest tests.test_bot_telegram -v
@@ -66,7 +66,7 @@ class BotTelegram(unittest.TestCase):
         self.decir(msg(CHAT_ADQ, f"/vincular {self.cod_adq}"))
         r = self.decir(msg(CHAT_ADQ, "¿cómo va la OC-2026-0002?"))
         self.assertIn("OC-2026-0002", r)
-        self.assertIn("Esperando factura", r)
+        self.assertIn("Esperando el material", r)
 
     def test_proveedor_no_ve_ordenes_ajenas(self):
         self.decir(msg(CHAT_PROVEEDOR, f"/vincular {self.cod_prov}"))
@@ -78,15 +78,24 @@ class BotTelegram(unittest.TestCase):
         self.cur.execute("SELECT id FROM ordenes_compra WHERE folio = 'OC-2026-0001'")
         oc_id = self.cur.fetchone()[0]
         lineas = [(l["descripcion"], l["cantidad"], l["precio_unitario"]) for l in compras.lineas_oc(self.cur, oc_id)]
+        self.api.archivos["bueno"] = generar_xml("PDA010101AA1", "Papelería Demo", "ITM990101AB1", lineas)
+        r = self.decir(msg(CHAT_PROVEEDOR, documento={"file_id": "bueno", "file_name": "factura.xml"},
+                           pie="OC-2026-0001"))
+        self.assertIn("validada", r)
+
+    def test_factura_invalida_por_telegram_cancela_la_compra(self):
+        self.decir(msg(CHAT_PROVEEDOR, f"/vincular {self.cod_prov}"))
+        self.cur.execute("SELECT id FROM ordenes_compra WHERE folio = 'OC-2026-0005'")   # también de Papelería
+        oc_id = self.cur.fetchone()[0]
+        lineas = [(l["descripcion"], l["cantidad"], l["precio_unitario"]) for l in compras.lineas_oc(self.cur, oc_id)]
         self.api.archivos["malo"] = generar_xml("PDA010101AA1", "Papelería Demo", "ITM990101AB1", lineas,
                                                 total_forzado=Decimal("1.00"))
-        self.api.archivos["bueno"] = generar_xml("PDA010101AA1", "Papelería Demo", "ITM990101AB1", lineas)
-        r1 = self.decir(msg(CHAT_PROVEEDOR, documento={"file_id": "malo", "file_name": "factura.xml"},
-                            pie="OC-2026-0001"))
-        self.assertIn("IMPORTE_DISTINTO", r1)
-        r2 = self.decir(msg(CHAT_PROVEEDOR, documento={"file_id": "bueno", "file_name": "factura.xml"},
-                            pie="OC-2026-0001"))
-        self.assertIn("validada", r2)
+        r = self.decir(msg(CHAT_PROVEEDOR, documento={"file_id": "malo", "file_name": "factura.xml"},
+                           pie="OC-2026-0005"))
+        self.assertIn("IMPORTE_DISTINTO", r)
+        self.assertIn("canceló", r)
+        self.cur.execute("SELECT estatus FROM ordenes_compra WHERE id = ?", oc_id)
+        self.assertEqual(self.cur.fetchone()[0], "CANCELADA")
 
     def test_pdf_en_lugar_de_xml(self):
         self.decir(msg(CHAT_PROVEEDOR, f"/vincular {self.cod_prov}"))

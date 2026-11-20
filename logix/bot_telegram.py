@@ -1,4 +1,4 @@
-"""Robot R8 · Bot de Telegram de Logix.
+"""Robot R7 · Bot de Telegram de Logix.
 
 Lo que se le puede escribir al bot:
   /start                      → instrucciones
@@ -41,7 +41,7 @@ def vincular(cur, chat_id: int, codigo: str) -> str:
                     f"OUTPUT INSERTED.id, INSERTED.{campo} WHERE codigo_telegram = ?", chat_id, codigo)
         f = cur.fetchone()
         if f:
-            db.bitacora(cur, "ROBOT-R8", "USUARIO" if tabla == "usuarios" else "PROVEEDOR", f[0],
+            db.bitacora(cur, "ROBOT-R7", "USUARIO" if tabla == "usuarios" else "PROVEEDOR", f[0],
                         "VINCULA_TELEGRAM")
             return f"✅ Listo, {f[1]}. A partir de ahora recibirás aquí los avisos de Logix."
     return "❌ Ese código no es válido o ya se usó. Revisa el código que te muestra Logix."
@@ -64,7 +64,7 @@ def consultar(cur, quien: dict, folio: str) -> str:
     if ultimo:
         texto += f"\n\nÚltimo movimiento: {ultimo['accion'].replace('_', ' ').lower()} ({ultimo['fecha']:%d/%m %H:%M})"
     if s["etapa"] is None:
-        texto += "\n⚠️ Detenido; Adquisiciones ya fue avisada y lo está resolviendo."
+        texto += f"\n❌ Compra cancelada: {s['motivo_cancelacion'] or 'sin motivo'}"
     return texto
 
 
@@ -93,8 +93,11 @@ def atender(cur, mensaje: dict, api) -> str:
         contenido = api.descargar(doc["file_id"])
         resultado, codigos = procesar_factura(cur, contenido, doc["file_name"], m.group(0), quien["correo"])
         if resultado == "VALIDA":
-            return f"✅ Factura validada para la {m.group(0).upper()}. Siguiente paso: entrega del material en Almacén."
-        return f"❌ Factura rechazada ({', '.join(codigos)}). En un momento te llega el detalle de qué corregir."
+            return f"✅ Factura validada para la {m.group(0).upper()}. En un momento te llega el siguiente paso."
+        if {"OC_INEXISTENTE", "OC_NO_ESPERA_FACTURA", "CFDI_INVALIDO"} & set(codigos):
+            return f"❌ Archivo no aceptado ({', '.join(codigos)}). En un momento te llega el detalle."
+        return (f"❌ Factura no válida ({', '.join(codigos)}): la compra {m.group(0).upper()} se canceló. "
+                "En un momento te llega el detalle.")
 
     m = PATRON_FOLIO.search(texto)
     if m:

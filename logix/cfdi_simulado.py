@@ -16,7 +16,7 @@ def _r(x: Decimal) -> Decimal:
 def generar_xml(rfc_emisor: str, nombre_emisor: str, rfc_receptor: str,
                 conceptos: list[tuple[str, Decimal, Decimal]],
                 folio: str = "1", total_forzado: Decimal | None = None,
-                uuid: str | None = None, tipo: str = "I") -> bytes:
+                uuid: str | None = None, tipo: str = "I", moneda: str = "MXN") -> bytes:
     """conceptos = [(descripcion, cantidad, precio_unitario_CON_IVA), ...]
 
     En la OC los precios incluyen IVA (instructivo del formato 001-05); en el CFDI
@@ -42,7 +42,7 @@ def generar_xml(rfc_emisor: str, nombre_emisor: str, rfc_receptor: str,
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
   Version="4.0" Serie="A" Folio="{folio}" Fecha="{datetime.now().replace(microsecond=0).isoformat()}"
-  SubTotal="{subtotal}" Moneda="MXN" Total="{total}" TipoDeComprobante="{tipo}" Exportacion="01"
+  SubTotal="{subtotal}" Moneda="{moneda}" Total="{total}" TipoDeComprobante="{tipo}" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
   <cfdi:Emisor Rfc="{rfc_emisor}" Nombre="{nombre_emisor}" RegimenFiscal="601"/>
   <cfdi:Receptor Rfc="{rfc_receptor}" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"

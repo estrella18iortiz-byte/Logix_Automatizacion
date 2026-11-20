@@ -1,197 +1,151 @@
-"""Robots R4 y R5 · Comunicación Adquisiciones ⇄ Recursos Financieros y conciliación del pago.
+"""Robot R5 · Pago AUTOMÁTICO en el banco emulado y respuesta a cada resultado del banco.
 
-Logix NO mueve dinero: el pago lo hace exclusivamente Recursos Financieros con su banco.
-Lo que automatiza es la COMUNICACIÓN entre los dos departamentos, en ambos sentidos:
+Cuando el expediente llega completo a Recursos Financieros (factura validada + material
+confirmado por el Jefe de Almacén), Logix manda la transferencia al banco emulado sin
+que nadie presione nada. Lo que hace con la respuesta del banco:
 
-  Adquisiciones → Finanzas : el expediente completo (robot R3) y, si Finanzas lo devolvió,
-                             el expediente corregido con la respuesta («Reenviar a Finanzas»).
-  Finanzas → Adquisiciones : «Devolver con motivo» (falta algo o algo está mal),
-                             «Programar fecha de pago» y «Pago registrado».
-  En cada paso Logix avisa solo a quien le toca (y al proveedor cuando le interesa).
+  CONFIRMADO          OC PAGADA · aviso al proveedor, a Adquisiciones y a Finanzas
+  PAGO_DUPLICADO      ya se había pagado → también queda PAGADA (no se paga dos veces)
+  ERROR_GENERAL       se reintenta SOLO, hasta 3 intentos (uno por vuelta del robot);
+                      si sigue fallando → error para Finanzas
+  SALDO_INSUFICIENTE  ┐ no se reintenta: la OC queda en PAGO_CON_ERROR y Finanzas decide
+  MONTO_INCORRECTO    │ con dos botones: «Reintentar pago» o «Cancelar pago» (con motivo).
+  DIVISA_INCORRECTA   ┘ Al proveedor se le avisa «pago en proceso, hubo un retraso».
+  CUENTA_INVALIDA     igual, pero al proveedor se le pide corregir su CLABE.
 
-R4 (cada minuto): si un expediente lleva mucho tiempo sin respuesta de un lado o del otro,
-    le manda un recordatorio a ese departamento (una vez al día).
-R5 (cada minuto): Finanzas deja el archivo de movimientos del banco en banco/entrada;
-    el robot identifica cada pago por el folio de la OC y el importe, lo marca PAGADO
-    y avisa. Lo que no coincide se reporta, no se adivina. (En el prototipo el archivo es SIMULADO.)
+Solo cuando Finanzas presiona «Cancelar pago» la compra se cancela y se avisa al
+proveedor y a Adquisiciones (cancelacion.py).
 """
-import csv
-import shutil
-from datetime import date, datetime, timedelta
-from decimal import Decimal
-from pathlib import Path
-
-from . import avisos, config, db
+from . import avisos, banco_emulado, cancelacion, db
 from .errores import ReglaNegocio
 
+ACTOR = "ROBOT-R5"
 
-def _oc(cur, oc_id: int) -> tuple[str, str, int, Decimal]:
-    cur.execute("SELECT folio, estatus, proveedor_id, total FROM ordenes_compra WHERE id = ?", oc_id)
+
+def _datos(cur, oc_id: int):
+    cur.execute("""SELECT oc.folio, oc.estatus, oc.proveedor_id, p.clabe, pg.monto, pg.moneda, pg.intentos, pg.estatus
+                   FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
+                   JOIN pagos pg ON pg.oc_id = oc.id WHERE oc.id = ?""", oc_id)
     fila = cur.fetchone()
     if not fila:
-        raise ReglaNegocio("La orden de compra no existe.")
+        raise ReglaNegocio("Esa orden no tiene un pago en Recursos Financieros.")
     return fila
 
 
+# ------------------------------------------------------------ el pago automático
+def pagar(cur, oc_id: int, actor: str = ACTOR) -> str:
+    """Manda la transferencia al banco emulado y actúa según la respuesta. Regresa el código del banco."""
+    folio, estatus_oc, proveedor_id, clabe, monto, moneda, intentos, _ = _datos(cur, oc_id)
+    intentos += 1
+    r = banco_emulado.transferir(cur, folio, clabe, monto, moneda)
+    db.bitacora(cur, actor, "OC", oc_id, "BANCO_RESPONDE", nuevo=r.codigo, detalle=f"Intento {intentos}: {r.mensaje}")
+
+    if r.confirmado:
+        _confirmar(cur, oc_id, folio, proveedor_id, monto, r, intentos, estatus_oc)
+        return r.codigo
+
+    max_intentos = int(db.parametro(cur, "REINTENTOS_BANCO"))
+    if r.codigo == "ERROR_GENERAL" and intentos < max_intentos:
+        # Falla momentánea: el robot lo vuelve a intentar en la siguiente vuelta (cada minuto).
+        cur.execute("UPDATE pagos SET estatus = 'REINTENTO', intentos = ?, codigo_error = ?, detalle_error = ? "
+                    "WHERE oc_id = ?", intentos, r.codigo, r.mensaje[:500], oc_id)
+        return r.codigo
+
+    # Error que necesita a una persona: Finanzas decide si reintenta o cancela.
+    cur.execute("UPDATE pagos SET estatus = 'ERROR', intentos = ?, codigo_error = ?, detalle_error = ? "
+                "WHERE oc_id = ?", intentos, r.codigo, r.mensaje[:500], oc_id)
+    cur.execute("UPDATE ordenes_compra SET estatus = 'PAGO_CON_ERROR' WHERE id = ?", oc_id)
+    db.bitacora(cur, actor, "OC", oc_id, "PAGO_CON_ERROR", estatus_oc, "PAGO_CON_ERROR", r.codigo)
+    que_hacer = {
+        "SALDO_INSUFICIENTE": "Cuando haya saldo, presione «Reintentar pago».",
+        "MONTO_INCORRECTO": "Revise el monto contra la factura y el límite por operación; luego reintente o cancele.",
+        "DIVISA_INCORRECTA": "La factura no está en pesos (MXN). Reintente cuando se corrija o cancele el pago.",
+        "CUENTA_INVALIDA": "Se le pidió al proveedor su CLABE correcta. Corríjala con «Corregir CLABE» y reintente.",
+        "ERROR_GENERAL": f"El banco falló {intentos} veces seguidas. Reintente más tarde o cancele el pago.",
+    }.get(r.codigo, "Reintente o cancele el pago.")
+    avisos.a_rol(cur, "FINANZAS", f"Error del banco · {folio}",
+                 f"El banco no pudo pagar la OC {folio} (${monto:,.2f}).\nError: {r.codigo} · {r.mensaje}\n{que_hacer}")
+    if r.codigo == "CUENTA_INVALIDA":
+        avisos.a_proveedor(cur, proveedor_id, f"Pago detenido · PAG-{folio[3:]}",
+                           f"No pudimos transferir el pago de la OC {folio}: el banco rechazó su cuenta CLABE "
+                           f"registrada ({clabe}). Envíenos su CLABE correcta de 18 dígitos para continuar.")
+    else:
+        avisos.a_proveedor(cur, proveedor_id, f"Pago en proceso · PAG-{folio[3:]}",
+                           f"El pago de su OC {folio} por ${monto:,.2f} sigue en proceso: hubo un retraso con el "
+                           "banco. Le avisaremos en cuanto se confirme.")
+    return r.codigo
+
+
+def _confirmar(cur, oc_id, folio, proveedor_id, monto, r, intentos, estatus_oc):
+    cur.execute("UPDATE pagos SET estatus = 'CONFIRMADO', intentos = ?, referencia_banco = ?, fecha_pago = SYSDATETIME(), "
+                "codigo_error = NULL, detalle_error = NULL WHERE oc_id = ?", intentos, r.clave_rastreo, oc_id)
+    cur.execute("UPDATE ordenes_compra SET estatus = 'PAGADA' WHERE id = ?", oc_id)
+    db.bitacora(cur, ACTOR, "OC", oc_id, "PAGADA", estatus_oc, "PAGADA",
+                f"Banco confirmó · clave de rastreo {r.clave_rastreo}")
+    avisos.a_proveedor(cur, proveedor_id, f"Pago confirmado · {folio}",
+                       f"¡Todo está bien! El banco confirmó el pago de la OC {folio} por ${monto:,.2f}. "
+                       f"Clave de rastreo: {r.clave_rastreo}. Gracias.")
+    avisos.a_rol(cur, "ADQUISICIONES", f"Compra pagada · {folio}",
+                 f"El banco confirmó el pago de la OC {folio} (clave {r.clave_rastreo}). La compra quedó cerrada.")
+    avisos.a_rol(cur, "FINANZAS", f"Pago confirmado · {folio}",
+                 f"El banco confirmó el pago automático de la OC {folio} por ${monto:,.2f} (clave {r.clave_rastreo}).")
+
+
+def reintentar_pendientes(cur) -> int:
+    """Vuelta del robot: reintenta los pagos que tuvieron un error general. Regresa cuántos intentó."""
+    cur.execute("SELECT oc_id FROM pagos WHERE estatus = 'REINTENTO'")
+    ids = [f[0] for f in cur.fetchall()]
+    for oc_id in ids:
+        pagar(cur, oc_id)
+    return len(ids)
+
+
+# ------------------------------------------------------------ lo que decide Finanzas
+def reintentar(cur, usuario: dict, oc_id: int) -> str:
+    """Botón «Reintentar pago»: vuelve a mandar la transferencia (los intentos empiezan de nuevo)."""
+    folio, estatus, *_ = _datos(cur, oc_id)
+    if estatus != "PAGO_CON_ERROR":
+        raise ReglaNegocio(f"La OC {folio} no tiene un error de pago (estatus {estatus}).")
+    cur.execute("UPDATE pagos SET estatus = 'EN_PROCESO', intentos = 0 WHERE oc_id = ?", oc_id)
+    cur.execute("UPDATE ordenes_compra SET estatus = 'EN_FINANZAS' WHERE id = ?", oc_id)
+    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "REINTENTA_PAGO", "PAGO_CON_ERROR", "EN_FINANZAS")
+    return pagar(cur, oc_id, actor=usuario["usuario"])
+
+
+def cancelar_pago(cur, usuario: dict, oc_id: int, motivo: str) -> str:
+    """Botón «Cancelar pago»: la compra se cancela y se avisa al proveedor y a Adquisiciones."""
+    folio, estatus, *_ = _datos(cur, oc_id)
+    if estatus != "PAGO_CON_ERROR":
+        raise ReglaNegocio("Solo se cancela el pago de una orden que tuvo un error del banco.")
+    return cancelacion.cancelar(cur, oc_id, "PAGO_CANCELADO", motivo, usuario["usuario"])
+
+
+def corregir_clabe(cur, usuario: dict, oc_id: int, clabe: str):
+    """Finanzas captura la CLABE correcta que mandó el proveedor (se valida el dígito verificador)."""
+    clabe = (clabe or "").strip().replace(" ", "")
+    if not banco_emulado.clabe_valida(clabe):
+        raise ReglaNegocio("La CLABE debe tener 18 dígitos y un dígito verificador correcto.")
+    folio, _, proveedor_id, anterior, *_ = _datos(cur, oc_id)
+    cur.execute("UPDATE proveedores SET clabe = ? WHERE id = ?", clabe, proveedor_id)
+    db.bitacora(cur, usuario["usuario"], "PROVEEDOR", proveedor_id, "CORRIGE_CLABE", anterior, clabe, folio)
+
+
 # ------------------------------------------------------------ bandejas
-def por_pagar(cur) -> list[dict]:
-    """Bandeja de Finanzas: expedientes que llegaron y esperan pago."""
-    cur.execute("""SELECT oc.id, oc.folio, p.razon_social AS proveedor, oc.area_solicitante, oc.total,
-                          pg.fecha_turno, pg.fecha_programada, e.ruta_pdf, e.memorandum
+def en_finanzas(cur) -> list[dict]:
+    """Bandeja de Finanzas: expedientes con pago en curso o con error del banco."""
+    cur.execute("""SELECT oc.id, oc.folio, oc.estatus, p.razon_social AS proveedor, p.clabe, oc.total,
+                          pg.fecha_turno, pg.estatus AS estatus_pago, pg.intentos, pg.codigo_error,
+                          pg.detalle_error, e.ruta_pdf, e.memorandum
                    FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
                    JOIN pagos pg ON pg.oc_id = oc.id LEFT JOIN expedientes e ON e.oc_id = oc.id
-                   WHERE oc.estatus = 'EN_FINANZAS' ORDER BY pg.fecha_turno""")
+                   WHERE oc.estatus IN ('EN_FINANZAS', 'PAGO_CON_ERROR') ORDER BY pg.fecha_turno""")
     return db.filas(cur)
 
 
-def devueltas(cur) -> list[dict]:
-    """Bandeja de Adquisiciones: lo que Finanzas regresó, con su motivo."""
-    cur.execute("""SELECT oc.id, oc.folio, p.razon_social AS proveedor, oc.total, e.fecha, e.detalle AS motivo,
-                          ex.ruta_pdf
-                   FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
-                   JOIN excepciones e ON e.oc_id = oc.id AND e.tipo = 'DEVUELTA_FINANZAS' AND e.estatus = 'ABIERTA'
-                   LEFT JOIN expedientes ex ON ex.oc_id = oc.id
-                   WHERE oc.estatus = 'DEVUELTA' ORDER BY e.fecha""")
+def pagados(cur, limite: int = 100) -> list[dict]:
+    cur.execute(f"""SELECT TOP {int(limite)} oc.id, oc.folio, p.razon_social AS proveedor, pg.monto,
+                           pg.referencia_banco, pg.fecha_pago, pg.intentos, e.ruta_pdf
+                    FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
+                    JOIN pagos pg ON pg.oc_id = oc.id LEFT JOIN expedientes e ON e.oc_id = oc.id
+                    WHERE pg.estatus = 'CONFIRMADO' ORDER BY pg.fecha_pago DESC""")
     return db.filas(cur)
-
-
-# ------------------------------------------------------------ Finanzas → Adquisiciones
-def programar(cur, usuario: dict, oc_id: int, fecha: date):
-    folio, estatus, proveedor_id, total = _oc(cur, oc_id)
-    if estatus != "EN_FINANZAS":
-        raise ReglaNegocio("Solo se programa el pago de expedientes que están en Finanzas.")
-    if fecha < date.today():
-        raise ReglaNegocio("La fecha de pago no puede ser anterior a hoy.")
-    cur.execute("UPDATE pagos SET fecha_programada = ? WHERE oc_id = ?", fecha, oc_id)
-    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "PROGRAMA_PAGO", nuevo=str(fecha))
-    avisos.a_rol(cur, "ADQUISICIONES", f"Pago programado · {folio}",
-                 f"Recursos Financieros programó el pago de la OC {folio} para el {fecha:%d/%m/%Y}.")
-    avisos.a_proveedor(cur, proveedor_id, f"Pago programado · PAG-{folio[3:]}",
-                       f"El pago de su OC {folio} por ${total:,.2f} quedó programado para el {fecha:%d/%m/%Y}. "
-                       "Le avisaremos cuando se registre.")
-
-
-def devolver(cur, usuario: dict, oc_id: int, motivo: str):
-    """Finanzas regresa el expediente a Adquisiciones explicando qué falta o qué está mal."""
-    if not motivo or len(motivo.strip()) < 5:
-        raise ReglaNegocio("Para devolver es obligatorio escribir el motivo.")
-    folio, estatus, _, _ = _oc(cur, oc_id)
-    if estatus != "EN_FINANZAS":
-        raise ReglaNegocio("Solo se devuelven expedientes que están en Finanzas.")
-    cur.execute("UPDATE ordenes_compra SET estatus = 'DEVUELTA' WHERE id = ?", oc_id)
-    cur.execute("INSERT INTO excepciones (oc_id, tipo, detalle) VALUES (?, 'DEVUELTA_FINANZAS', ?)",
-                oc_id, motivo.strip())
-    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "DEVUELVE_A_ADQUISICIONES", "EN_FINANZAS", "DEVUELTA",
-                motivo.strip())
-    avisos.a_rol(cur, "ADQUISICIONES", f"Finanzas devolvió el expediente · {folio}",
-                 f"Recursos Financieros devolvió el expediente de la OC {folio}. Motivo: {motivo.strip()}. "
-                 "Corríjalo y use «Reenviar a Finanzas» en Logix.")
-
-
-def _marcar_pagado(cur, oc_id: int, referencia: str, fecha_pago: date, actor: str, conciliado: bool):
-    cur.execute("UPDATE pagos SET referencia = ?, fecha_pago = ?, conciliado = ? WHERE oc_id = ?",
-                referencia, fecha_pago, int(conciliado), oc_id)
-    cur.execute("UPDATE ordenes_compra SET estatus = 'PAGADA' OUTPUT INSERTED.folio, INSERTED.proveedor_id, "
-                "INSERTED.total WHERE id = ?", oc_id)
-    folio, proveedor_id, total = cur.fetchone()
-    db.bitacora(cur, actor, "OC", oc_id, "PAGADA", "EN_FINANZAS", "PAGADA", f"ref {referencia}")
-    avisos.a_proveedor(cur, proveedor_id, f"Pago realizado · {folio}",
-                       f"Recursos Financieros registró el pago de la OC {folio} por ${total:,.2f} "
-                       f"el {fecha_pago:%d/%m/%Y} (referencia {referencia}). ¡Gracias!")
-    avisos.a_rol(cur, "ADQUISICIONES", f"Compra pagada y cerrada · {folio}",
-                 f"Recursos Financieros pagó la OC {folio} (referencia {referencia}). El expediente quedó cerrado.")
-
-
-def registrar_pago(cur, usuario: dict, oc_id: int, referencia: str, fecha_pago: date):
-    """Registro manual (respaldo por si no se usa el archivo del banco)."""
-    if not referencia or len(referencia.strip()) < 4:
-        raise ReglaNegocio("Escriba la referencia bancaria del pago.")
-    _, estatus, _, _ = _oc(cur, oc_id)
-    if estatus != "EN_FINANZAS":
-        raise ReglaNegocio("Solo se registra el pago de expedientes que están en Finanzas.")
-    _marcar_pagado(cur, oc_id, referencia.strip(), fecha_pago, usuario["usuario"], conciliado=False)
-
-
-# ------------------------------------------------------------ Adquisiciones → Finanzas
-def reenviar(cur, usuario: dict, oc_id: int, respuesta: str):
-    """Adquisiciones contesta la devolución y regresa el expediente a Finanzas."""
-    if not respuesta or len(respuesta.strip()) < 5:
-        raise ReglaNegocio("Escriba qué se corrigió, para que Finanzas lo sepa.")
-    folio, estatus, _, _ = _oc(cur, oc_id)
-    if estatus != "DEVUELTA":
-        raise ReglaNegocio(f"La OC {folio} no está devuelta por Finanzas.")
-    cur.execute("UPDATE excepciones SET estatus = 'RESUELTA', resuelta_por = ?, fecha_resuelta = SYSDATETIME() "
-                "WHERE oc_id = ? AND tipo = 'DEVUELTA_FINANZAS' AND estatus = 'ABIERTA'", usuario["id"], oc_id)
-    cur.execute("UPDATE ordenes_compra SET estatus = 'EN_FINANZAS' WHERE id = ?", oc_id)
-    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "REENVIA_A_FINANZAS", "DEVUELTA", "EN_FINANZAS",
-                respuesta.strip())
-    avisos.a_rol(cur, "FINANZAS", f"Expediente corregido · {folio}",
-                 f"Adquisiciones corrigió y reenvió el expediente de la OC {folio}. "
-                 f"Respuesta: {respuesta.strip()}")
-
-
-# ------------------------------------------------------------ robot R4 (cada minuto)
-def _ya_recordado_hoy(cur, oc_id: int) -> bool:
-    cur.execute("SELECT COUNT(*) FROM bitacora WHERE entidad = 'OC' AND entidad_id = ? AND accion = 'RECUERDA' "
-                "AND CAST(fecha AS DATE) = CAST(SYSDATETIME() AS DATE)", oc_id)
-    return cur.fetchone()[0] > 0
-
-
-def recordar_pendientes(cur, ahora: datetime | None = None) -> int:
-    """Recordatorio a quien tiene detenido el expediente. Regresa cuántos mandó."""
-    ahora = ahora or datetime.now()
-    horas_fin = int(db.parametro(cur, "HORAS_RECORDATORIO_FINANZAS"))
-    horas_adq = int(db.parametro(cur, "HORAS_RECORDATORIO_ADQUISICIONES"))
-    enviados = 0
-    # Finanzas: expediente recibido y sin fecha de pago.
-    cur.execute("""SELECT oc.id, oc.folio, pg.fecha_turno FROM ordenes_compra oc JOIN pagos pg ON pg.oc_id = oc.id
-                   WHERE oc.estatus = 'EN_FINANZAS' AND pg.fecha_programada IS NULL""")
-    for oc_id, folio, desde in cur.fetchall():
-        if ahora - desde >= timedelta(hours=horas_fin) and not _ya_recordado_hoy(cur, oc_id):
-            avisos.a_rol(cur, "FINANZAS", f"Recordatorio · {folio}",
-                         f"El expediente de la OC {folio} lleva más de {horas_fin} h en Finanzas sin fecha de pago.")
-            db.bitacora(cur, "ROBOT-R4", "OC", oc_id, "RECUERDA", detalle="FINANZAS")
-            enviados += 1
-    # Adquisiciones: expediente devuelto sin corregir.
-    cur.execute("""SELECT oc.id, oc.folio, e.fecha FROM ordenes_compra oc JOIN excepciones e ON e.oc_id = oc.id
-                   WHERE oc.estatus = 'DEVUELTA' AND e.tipo = 'DEVUELTA_FINANZAS' AND e.estatus = 'ABIERTA'""")
-    for oc_id, folio, desde in cur.fetchall():
-        if ahora - desde >= timedelta(hours=horas_adq) and not _ya_recordado_hoy(cur, oc_id):
-            avisos.a_rol(cur, "ADQUISICIONES", f"Recordatorio · {folio}",
-                         f"Finanzas devolvió la OC {folio} hace más de {horas_adq} h y sigue sin reenviarse.")
-            db.bitacora(cur, "ROBOT-R4", "OC", oc_id, "RECUERDA", detalle="ADQUISICIONES")
-            enviados += 1
-    return enviados
-
-
-# ------------------------------------------------------------ robot R5 (cada minuto)
-def conciliar_carpeta(carpeta: Path | None = None) -> list[str]:
-    """CSV del banco con columnas: fecha, referencia, concepto, importe."""
-    entrada = carpeta or (config.RAIZ / "banco" / "entrada")
-    procesados = entrada.parent / "procesados"
-    entrada.mkdir(parents=True, exist_ok=True)
-    procesados.mkdir(parents=True, exist_ok=True)
-    resumen = []
-    for archivo in sorted(entrada.glob("*.csv")):
-        with db.conexion() as con:
-            cur = con.cursor()
-            with open(archivo, encoding="utf-8-sig") as fh:
-                for mov in csv.DictReader(fh):
-                    importe = Decimal(mov["importe"].replace(",", "").replace("$", ""))
-                    cur.execute("""SELECT oc.id, oc.folio, oc.total FROM ordenes_compra oc
-                                   WHERE oc.estatus = 'EN_FINANZAS' AND ? LIKE '%' + oc.folio + '%'""",
-                                mov["concepto"].upper())
-                    fila = cur.fetchone()
-                    if fila and fila[2] == importe:
-                        fecha = datetime.strptime(mov["fecha"], "%Y-%m-%d").date()
-                        _marcar_pagado(cur, fila[0], mov["referencia"], fecha, "ROBOT-R5", conciliado=True)
-                        resumen.append(f"{fila[1]} conciliada (ref {mov['referencia']})")
-                    else:
-                        detalle = (f"Movimiento sin expediente que coincida: {mov['concepto']} ${importe:,.2f} "
-                                   f"(ref {mov['referencia']})")
-                        cur.execute("INSERT INTO excepciones (oc_id, tipo, detalle) VALUES (?, 'PAGO_NO_IDENTIFICADO', ?)",
-                                    fila[0] if fila else None, detalle)
-                        avisos.a_rol(cur, "FINANZAS", "Movimiento bancario sin identificar", detalle)
-                        resumen.append(detalle)
-        shutil.move(str(archivo), procesados / f"{datetime.now():%Y%m%d_%H%M%S}_{archivo.name}")
-    return resumen

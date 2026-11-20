@@ -121,9 +121,11 @@ def pdf_orden_compra(cur, oc_id: int) -> Path:
                    new_x="LMARGIN", new_y="NEXT")
     pdf.seccion("Instrucciones para facturar")
     pdf.set_font(pdf.f, "", 9)
-    pdf.multi_cell(0, 5, f"Envíe el XML y el PDF de su CFDI al buzón de facturas con «{folio}» en el asunto. "
-                         "El importe debe coincidir exactamente con esta orden. Logix validará su factura "
-                         "en automático y le responderá por correo o Telegram.")
+    pdf.multi_cell(0, 5, "Entregue el material en el Almacén en un máximo de 7 días naturales; si no llega, "
+                         "la orden se cancela. Envíe el XML de su CFDI por Telegram (folio en el pie del archivo) "
+                         f"o al buzón de facturas con «{folio}» en el asunto. El importe debe coincidir "
+                         "exactamente con esta orden y estar en pesos (MXN). Logix valida la factura antes de "
+                         "pagar: si no es válida, la compra se cancela y el material se devuelve.")
     ruta = carpeta / f"{folio}_orden_de_compra.pdf"
     pdf.output(str(ruta))
     return ruta
@@ -137,10 +139,9 @@ def pdf_expediente(cur, oc_id: int, memorandum: str) -> Path:
     cur.execute("SELECT TOP 1 uuid, serie_folio, total, fecha_cfdi, ruta_xml FROM facturas "
                 "WHERE oc_id = ? AND resultado = 'VALIDA'", oc_id)
     uuid, serie, total_f, fecha_f, ruta_xml = cur.fetchone()
-    cur.execute("""SELECT rc.folio_entrada, rc.folio_salida, rc.fecha_recepcion, rc.fds_entregada,
-                          rc.observaciones, ua.nombre
+    cur.execute("""SELECT rc.folio_entrada, rc.folio_salida, rc.fecha_recepcion, rc.observaciones, ua.nombre
                    FROM recepciones rc JOIN usuarios ua ON ua.id = rc.almacen_id WHERE rc.oc_id = ?""", oc_id)
-    ent, sal, f_rec, fds, obs, almacen = cur.fetchone()
+    ent, sal, f_rec, obs, almacen = cur.fetchone()
 
     pdf = DocLogix("EXPEDIENTE DIGITAL DE COMPRA DIRECTA", f"{folio} · Memorándum {memorandum}")
     # Página 1: memorándum para Recursos Financieros
@@ -150,17 +151,18 @@ def pdf_expediente(cur, oc_id: int, memorandum: str) -> Path:
     pdf.dato("Para:", "Departamento de Recursos Financieros")
     pdf.dato("De:", "Departamento de Recursos Materiales · Adquisiciones (generado por Logix)")
     pdf.dato("Fecha:", f"{datetime.now():%d/%m/%Y}")
-    pdf.dato("Asunto:", f"Envío de expediente para programar el pago de la OC {folio}")
+    pdf.dato("Asunto:", f"Expediente completo y pago automático de la OC {folio}")
     pdf.ln(3)
     pdf.set_font(pdf.f, "", 10)
     pdf.multi_cell(0, 6, f"Se remite el expediente de la orden de compra {folio} del proveedor {prov} "
                          f"por ${total:,.2f}, integrado por la orden de compra (formato 001-05), la factura "
                          f"con folio fiscal {uuid} y la entrada y salida de almacén ({ent}/{sal}), para que se "
-                         "programe o realice el pago correspondiente, conforme al Instructivo TecNM-AD-IT-001.")
+                         "realice el pago correspondiente, conforme al Instructivo TecNM-AD-IT-001. Al estar "
+                         "completo y sin problemas, Logix envía la transferencia al banco (emulado) en automático.")
     pdf.seccion("Revisión automática del expediente")
     for ok, texto in [(True, f"Orden de compra {folio} registrada y enviada al proveedor"),
                       (total_f == total, f"Importe de la factura ${total_f:,.2f} = importe de la OC ${total:,.2f}"),
-                      (bool(ent), f"Material recibido en almacén: entrada {ent}")]:
+                      (bool(ent), f"Material confirmado por el Jefe de Almacén: entrada {ent}")]:
         pdf.set_font(pdf.f, "", 9.5)
         pdf.cell(0, 6, f"{'[OK]' if ok else '[X]'}  {texto}", new_x="LMARGIN", new_y="NEXT")
 
@@ -180,8 +182,7 @@ def pdf_expediente(cur, oc_id: int, memorandum: str) -> Path:
     pdf.dato("Archivo XML:", Path(ruta_xml).name)
     pdf.seccion("3. Entrada y salida de almacén")
     pdf.dato("Entrada / salida:", f"{ent} / {sal}  ({f_rec:%d/%m/%Y %H:%M})")
-    pdf.dato("Recibió en almacén:", almacen)
-    pdf.dato("Hoja de seguridad (FDS):", "Entregada" if fds else "No aplica / no entregada")
+    pdf.dato("Confirmó (Jefe de Almacén):", almacen)
     pdf.dato("Observaciones:", obs or "Sin observaciones")
 
     ruta = _carpeta(folio) / f"{folio}_expediente.pdf"
