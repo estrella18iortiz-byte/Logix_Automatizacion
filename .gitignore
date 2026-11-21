@@ -24,3 +24,8 @@ desktop.ini
 
 # ---- Memoria de Claude: se queda SOLO en esta PC, nunca se sube a internet ----
 memoria_claude/
+
+# Material personal de Angela (no se sube)
+docs/GUION_VIDEO.md
+docs/TUTORIAL_VIDEO_OBS.md
+docs/resultados_SUS.md
