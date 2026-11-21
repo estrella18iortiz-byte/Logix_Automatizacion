@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-20T19:27:41"
+  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-20T20:14:29"
   SubTotal="896.56" Moneda="MXN" Total="1040.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
   <cfdi:Emisor Rfc="PDA010101AA1" Nombre="Papelería Demo del Altiplano S.A. de C.V." RegimenFiscal="601"/>
@@ -12,6 +12,6 @@
   </cfdi:Conceptos>
   <cfdi:Impuestos TotalImpuestosTrasladados="143.44"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="B34D71DD-C2C2-43AE-ABE2-70E53332FB74" FechaTimbrado="2026-11-20T19:27:41"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="C75C1760-3C02-4C1E-ACD9-8A5F3601F526" FechaTimbrado="2026-11-20T20:14:29"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

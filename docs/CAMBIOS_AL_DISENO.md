@@ -101,15 +101,15 @@ Diagramas nuevos para pegar en los documentos: `diagramas/01_flujo_proceso.png`,
 
 | Criterio | Casos |
 |---|---|
-| CA-03 Requisición validada y OC automática | CP-02, CP-03, CP-03b |
-| CA-05 Jefe de Almacén (llegó bien / devolución) | CP-07, CP-08 |
-| CA-07 Expediente y pago automático | CP-11, CP-11b |
-| CA-08 Factura (48 h, inválida, llega antes del material) | CP-09, CP-10, CP-12 |
-| CA-10 Respuestas del banco | CP-13 (error general), CP-14 (saldo), CP-15 (CLABE), CP-16 (divisa), CP-17 (monto), CP-18 (duplicado) |
-| CA-12 Seguimiento y avisos | CP-19, CP-21 |
-| CA-14 Plazos del material | CP-04 (día 3), CP-05 (5 h antes), CP-06 (día 7) |
-| CA-15 Inicio de sesión | CP-01 |
-| CA-16 Bitácora inmutable | CP-20 |
+| CA-01 Requisición validada y OC automática | CP-02, CP-03, CP-03b |
+| CA-03 Jefe de Almacén (llegó bien / devolución) | CP-07, CP-08 |
+| CA-05 Expediente y pago automático | CP-11, CP-11b |
+| CA-04 Factura (48 h, inválida, llega antes del material) | CP-09, CP-10, CP-12 |
+| CA-06 Respuestas del banco | CP-13 (error general), CP-14 (saldo), CP-15 (CLABE), CP-16 (divisa), CP-17 (monto), CP-18 (duplicado) |
+| CA-07 Seguimiento y avisos | CP-19, CP-21 |
+| CA-02 Plazos del material | CP-04 (día 3), CP-05 (5 h antes), CP-06 (día 7) |
+| CA-08 Inicio de sesión | CP-01 |
+| CA-09 Bitácora inmutable | CP-20 |
 | RNF-02 Rendimiento | CP-22 |
 
 - Métricas (admin › Indicadores): compras pagadas y canceladas, % canceladas, cancelaciones por causa, facturas rechazadas, respuestas de error del banco, segundos de Finanzas al pago, horas hasta el material y hojas impresas.

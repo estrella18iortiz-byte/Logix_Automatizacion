@@ -93,7 +93,7 @@ def atrasar_oc(cur, oc_id, **delta):
 
 
 # ======================================================================= inicio
-@caso("CP-01", "CA-15", "Inicio de sesión: correcto, contraseña errónea y bloqueo tras 5 intentos")
+@caso("CP-01", "CA-08", "Inicio de sesión: correcto, contraseña errónea y bloqueo tras 5 intentos")
 def cp01(cur, ctx):
     assert u(cur, "almacen")["rol"] == "ALMACEN"
     cur.execute("SELECT COUNT(*) FROM usuarios WHERE rol = 'ADQUISICIONES'")
@@ -104,7 +104,7 @@ def cp01(cur, ctx):
     cur.execute("UPDATE usuarios SET intentos_fallidos = 0 WHERE usuario = 'finanzas'")
 
 
-@caso("CP-02", "CA-03", "R1 revisa los datos del evento: sin renglones, cantidad 0 o sin área no genera OC")
+@caso("CP-02", "CA-01", "R1 revisa los datos del evento: sin renglones, cantidad 0 o sin área no genera OC")
 def cp02(cur, ctx):
     cur.execute("SELECT id FROM proveedores WHERE rfc = ?", RFC_PROV)
     prov = cur.fetchone()[0]
@@ -113,7 +113,7 @@ def cp02(cur, ctx):
     debe_fallar(lambda: compras.generar_oc(cur, prov, "", [("Mouse", "Pieza", 1, 150)]), "área")
 
 
-@caso("CP-03", "CA-03", "R0+R1: requisición validada (001-03, partida, 4 firmas) → OC PDF con QR al proveedor fijo")
+@caso("CP-03", "CA-01", "R0+R1: requisición validada (001-03, partida, 4 firmas) → OC PDF con QR al proveedor fijo")
 def cp03(cur, ctx):
     oc_id, folio = nueva_oc(cur, [("Mouse óptico USB", "Pieza", 10, 150), ("Memoria USB 32 GB", "Pieza", 5, 180)])
     cur.execute("""SELECT oc.estatus, oc.ruta_pdf, oc.total, oc.registrada_por, p.rfc, r.folio, r.partida, r.firmas
@@ -130,7 +130,7 @@ def cp03(cur, ctx):
     ctx["oc_plazos"] = (oc_id, folio)
 
 
-@caso("CP-03b", "CA-03", "R0: llega una requisición sola cada N minutos; cada partida va a su proveedor fijo")
+@caso("CP-03b", "CA-01", "R0: llega una requisición sola cada N minutos; cada partida va a su proveedor fijo")
 def cp03b(cur, ctx):
     cur.execute("SELECT MAX(fecha) FROM requisiciones")
     ultima = cur.fetchone()[0]
@@ -150,7 +150,7 @@ def cp03b(cur, ctx):
 
 
 # ======================================================================= material
-@caso("CP-04", "CA-14", "R3: al día 3 se le recuerda al proveedor mandar el material (una sola vez)")
+@caso("CP-04", "CA-02", "R3: al día 3 se le recuerda al proveedor mandar el material (una sola vez)")
 def cp04(cur, ctx):
     oc_id, folio = ctx["oc_plazos"]
     atrasar_oc(cur, oc_id, days=3, hours=1)
@@ -159,7 +159,7 @@ def cp04(cur, ctx):
     assert plazos.revisar(cur)["recordatorios"] == 0, "no debe repetir el recordatorio"
 
 
-@caso("CP-05", "CA-14", "R3: 5 horas antes del día 7 se avisa al proveedor que se va a cancelar (una vez)")
+@caso("CP-05", "CA-02", "R3: 5 horas antes del día 7 se avisa al proveedor que se va a cancelar (una vez)")
 def cp05(cur, ctx):
     oc_id, folio = ctx["oc_plazos"]
     atrasar_oc(cur, oc_id, days=7, hours=-4)          # faltan 4 horas para el día 7
@@ -169,7 +169,7 @@ def cp05(cur, ctx):
     assert estatus(cur, oc_id) == "ESPERANDO_MATERIAL", "todavía no debe cancelarse"
 
 
-@caso("CP-06", "CA-14", "R3: al día 7 sin material la compra se cancela sola y se avisa al proveedor")
+@caso("CP-06", "CA-02", "R3: al día 7 sin material la compra se cancela sola y se avisa al proveedor")
 def cp06(cur, ctx):
     oc_id, folio = ctx["oc_plazos"]
     atrasar_oc(cur, oc_id, days=7, minutes=1)
@@ -181,7 +181,7 @@ def cp06(cur, ctx):
     assert cur.fetchone()[0] >= 1, "faltó el aviso al proveedor"
 
 
-@caso("CP-07", "CA-05", "Jefe de Almacén ve qué se aceptó; «Devolución» exige razón, cancela y avisa al proveedor")
+@caso("CP-07", "CA-03", "Jefe de Almacén ve qué se aceptó; «Devolución» exige razón, cancela y avisa al proveedor")
 def cp07(cur, ctx):
     oc_id, folio = nueva_oc(cur)
     d = recepcion.detalle_para_revisar(cur, oc_id)
@@ -199,7 +199,7 @@ def cp07(cur, ctx):
     debe_fallar(lambda: recepcion.confirmar_recepcion(cur, alm, oc_id), "no está esperando material")
 
 
-@caso("CP-08", "CA-05", "Jefe de Almacén: «Llegó bien» → entrada/salida y se le pide la factura al proveedor")
+@caso("CP-08", "CA-03", "Jefe de Almacén: «Llegó bien» → entrada/salida y se le pide la factura al proveedor")
 def cp08(cur, ctx):
     oc_id, folio = nueva_oc(cur)
     ent, sal = recepcion.confirmar_recepcion(cur, u(cur, "almacen"), oc_id)
@@ -210,7 +210,7 @@ def cp08(cur, ctx):
 
 
 # ======================================================================= factura
-@caso("CP-09", "CA-08", "R3: 48 h sin factura → compra cancelada y material por devolver; Almacén lo devuelve")
+@caso("CP-09", "CA-04", "R3: 48 h sin factura → compra cancelada y material por devolver; Almacén lo devuelve")
 def cp09(cur, ctx):
     oc_id, folio = ctx["oc_sin_factura"]
     atrasar_oc(cur, oc_id, hours=72)          # la OC se envió hace 3 días y el material llegó hace 49 h
@@ -224,7 +224,7 @@ def cp09(cur, ctx):
     assert not any(d["id"] == oc_id for d in recepcion.por_devolver(cur))
 
 
-@caso("CP-10", "CA-08", "R2: factura inválida → compra cancelada, material devuelto y aviso al proveedor")
+@caso("CP-10", "CA-04", "R2: factura inválida → compra cancelada, material devuelto y aviso al proveedor")
 def cp10(cur, ctx):
     oc_id, folio = nueva_oc(cur)
     recepcion.confirmar_recepcion(cur, u(cur, "almacen"), oc_id)
@@ -240,7 +240,7 @@ def cp10(cur, ctx):
 
 
 # ======================================================================= pago
-@caso("CP-11", "CA-07", "Camino feliz: material + factura válida → expediente SHA-256 → banco confirma → PAGADA")
+@caso("CP-11", "CA-05", "Camino feliz: material + factura válida → expediente SHA-256 → banco confirma → PAGADA")
 def cp11(cur, ctx):
     saldo_antes = banco_emulado.estado(cur)["saldo"]
     oc_id, folio = nueva_oc(cur)
@@ -265,7 +265,7 @@ def cp11(cur, ctx):
     ctx["oc_pagada"] = (oc_id, folio)
 
 
-@caso("CP-11b", "CA-07", "El pago sale al banco 5–10 min después del expediente (como un banco real)")
+@caso("CP-11b", "CA-05", "El pago sale al banco 5–10 min después del expediente (como un banco real)")
 def cp11b(cur, ctx):
     cur.execute("UPDATE parametros SET valor = CASE clave WHEN 'MINUTOS_PAGO_MIN' THEN '5' ELSE '10' END "
                 "WHERE clave IN ('MINUTOS_PAGO_MIN', 'MINUTOS_PAGO_MAX')")
@@ -288,7 +288,7 @@ def cp11b(cur, ctx):
         cur.execute("UPDATE parametros SET valor = '0' WHERE clave IN ('MINUTOS_PAGO_MIN', 'MINUTOS_PAGO_MAX')")
 
 
-@caso("CP-12", "CA-08", "La factura puede llegar antes que el material: al confirmar el material se paga solo")
+@caso("CP-12", "CA-04", "La factura puede llegar antes que el material: al confirmar el material se paga solo")
 def cp12(cur, ctx):
     oc_id, folio = nueva_oc(cur)
     res, _ = factura(cur, oc_id, folio)
@@ -299,7 +299,7 @@ def cp12(cur, ctx):
     assert avisos_con(cur, f"Material recibido · {folio}") >= 1, "no se le confirmó al proveedor que llegó su material"
 
 
-@caso("CP-13", "CA-10", "Banco «error general»: 3 intentos automáticos → error a Finanzas → Finanzas reintenta")
+@caso("CP-13", "CA-06", "Banco «error general»: 3 intentos automáticos → error a Finanzas → Finanzas reintenta")
 def cp13(cur, ctx):
     banco_emulado.simular_falla(cur, "ERROR_GENERAL")
     oc_id, folio = nueva_oc(cur)
@@ -320,7 +320,7 @@ def cp13(cur, ctx):
     assert estatus(cur, oc_id) == "PAGADA"
 
 
-@caso("CP-14", "CA-10", "Banco «saldo insuficiente»: no reintenta; Finanzas cancela con motivo y se avisa")
+@caso("CP-14", "CA-06", "Banco «saldo insuficiente»: no reintenta; Finanzas cancela con motivo y se avisa")
 def cp14(cur, ctx):
     cur.execute("UPDATE banco_cuenta SET saldo = 100 WHERE id = 1")
     oc_id, folio = nueva_oc(cur)
@@ -338,7 +338,7 @@ def cp14(cur, ctx):
     banco_emulado.depositar(cur, Decimal("250000"))
 
 
-@caso("CP-15", "CA-10", "Banco «CLABE inválida»: se le pide al proveedor; Finanzas la corrige y reintenta")
+@caso("CP-15", "CA-06", "Banco «CLABE inválida»: se le pide al proveedor; Finanzas la corrige y reintenta")
 def cp15(cur, ctx):
     cur.execute("UPDATE proveedores SET clabe = '014700009876543210' WHERE rfc = ?", RFC_PROV)  # dígito malo
     oc_id, folio = nueva_oc(cur)
@@ -354,7 +354,7 @@ def cp15(cur, ctx):
     assert pagos.reintentar(cur, fin, oc_id) == "CONFIRMADO"
 
 
-@caso("CP-16", "CA-10", "Banco «divisa equivocada»: factura en USD → error para Finanzas (no se paga)")
+@caso("CP-16", "CA-06", "Banco «divisa equivocada»: factura en USD → error para Finanzas (no se paga)")
 def cp16(cur, ctx):
     oc_id, folio = nueva_oc(cur)
     recepcion.confirmar_recepcion(cur, u(cur, "almacen"), oc_id)
@@ -364,7 +364,7 @@ def cp16(cur, ctx):
     assert estatus(cur, oc_id) == "PAGO_CON_ERROR"
 
 
-@caso("CP-17", "CA-10", "Banco «monto equivocado»: pasa el límite por operación → error para Finanzas")
+@caso("CP-17", "CA-06", "Banco «monto equivocado»: pasa el límite por operación → error para Finanzas")
 def cp17(cur, ctx):
     oc_id, folio = nueva_oc(cur, [("Servidor de cómputo", "Pieza", 1, 150000)])
     recepcion.confirmar_recepcion(cur, u(cur, "almacen"), oc_id)
@@ -373,7 +373,7 @@ def cp17(cur, ctx):
     assert cur.fetchone()[0] == "MONTO_INCORRECTO"
 
 
-@caso("CP-18", "CA-10", "Banco «pago duplicado»: la misma OC no se paga dos veces (no descuenta saldo)")
+@caso("CP-18", "CA-06", "Banco «pago duplicado»: la misma OC no se paga dos veces (no descuenta saldo)")
 def cp18(cur, ctx):
     oc_id, folio = ctx["oc_pagada"]
     saldo = banco_emulado.estado(cur)["saldo"]
@@ -386,7 +386,7 @@ def cp18(cur, ctx):
 
 
 # ======================================================================= consulta y controles
-@caso("CP-19", "CA-12", "Seguimiento por folio (OC y PAG): «Pagada» con línea de tiempo; cancelada con motivo")
+@caso("CP-19", "CA-07", "Seguimiento por folio (OC y PAG): «Pagada» con línea de tiempo; cancelada con motivo")
 def cp19(cur, ctx):
     oc_id, folio = ctx["oc_pagada"]
     for f in (folio, "PAG-" + folio[3:]):
@@ -398,7 +398,7 @@ def cp19(cur, ctx):
     assert consultas.seguimiento(cur, "OC-2026-9999") is None
 
 
-@caso("CP-20", "CA-16", "La bitácora no se puede modificar ni borrar")
+@caso("CP-20", "CA-09", "La bitácora no se puede modificar ni borrar")
 def cp20(cur, ctx):
     try:
         cur.execute("DELETE FROM bitacora")
@@ -437,7 +437,7 @@ def main():
         c(ctx)
     r6 = notificador.enviar_pendientes()
     ok6 = r6["SIMULADA"] > 0 and r6["FALLIDA"] == 0
-    RESULTADOS.append(["CP-21", "CA-12", "Robot R6 procesa la cola de avisos por correo y Telegram (modo simulado)",
+    RESULTADOS.append(["CP-21", "CA-07", "Robot R6 procesa la cola de avisos por correo y Telegram (modo simulado)",
                        "APROBADO" if ok6 else "FALLIDO", "", str(r6)])
     print(f"{'✔' if ok6 else '✘'} CP-21  avisos: {r6}")
     cp22(ctx)
