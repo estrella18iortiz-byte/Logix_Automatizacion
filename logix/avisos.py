@@ -4,10 +4,12 @@ Canales: CORREO (siempre) y TELEGRAM (solo si la persona ya se vinculó con el b
 """
 
 
-def encolar(cur, canal: str, destinatario: str | None, asunto: str | None, mensaje: str):
+def encolar(cur, canal: str, destinatario: str | None, asunto: str | None, mensaje: str,
+            adjunto: str | None = None):
+    """adjunto = ruta de un PDF que se manda junto con el mensaje (por ejemplo, la orden de compra)."""
     if destinatario:
-        cur.execute("INSERT INTO notificaciones (canal, destinatario, asunto, mensaje) VALUES (?, ?, ?, ?)",
-                    canal, str(destinatario), asunto, mensaje)
+        cur.execute("INSERT INTO notificaciones (canal, destinatario, asunto, mensaje, adjunto) VALUES (?, ?, ?, ?, ?)",
+                    canal, str(destinatario), asunto, mensaje, adjunto)
 
 
 def a_usuario(cur, usuario_id: int, asunto: str, mensaje: str):
@@ -31,9 +33,10 @@ def a_rol(cur, rol: str, asunto: str, mensaje: str, area_id: int | None = None):
         a_usuario(cur, uid, asunto, mensaje)
 
 
-def a_proveedor(cur, proveedor_id: int, asunto: str, mensaje: str, correo_extra: str | None = None):
+def a_proveedor(cur, proveedor_id: int, asunto: str, mensaje: str, correo_extra: str | None = None,
+                adjunto: str | None = None):
     cur.execute("SELECT correo, telegram_chat_id FROM proveedores WHERE id = ?", proveedor_id)
     correo, chat = cur.fetchone()
-    encolar(cur, "CORREO", correo_extra or correo, asunto, mensaje)
+    encolar(cur, "CORREO", correo_extra or correo, asunto, mensaje, adjunto)
     if chat:
-        encolar(cur, "TELEGRAM", chat, asunto, mensaje)
+        encolar(cur, "TELEGRAM", chat, asunto, mensaje, adjunto)

@@ -4,7 +4,7 @@ MATERIAL (máximo 7 días desde que se envió la OC):
   · Día 3 ............ recordatorio al proveedor: «recuerde mandar el material»
   · Día 7 menos 5 h .. último aviso al proveedor: «si no manda el material, la compra se cancela»
   · Día 7 ............ si el Jefe de Almacén no confirmó, la compra se CANCELA sola
-                       (aviso al proveedor y a Adquisiciones por correo y Telegram)
+                       (aviso al proveedor por correo y Telegram)
 
 FACTURA (48 horas desde que el Jefe de Almacén confirmó el material):
   · Al confirmar el material ya se le pidió la factura al proveedor (recepcion.py).

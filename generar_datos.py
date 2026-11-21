@@ -4,7 +4,8 @@
 
 1. Corre sql/01_esquema.sql (borra y crea logix_db).
 2. Carga parámetros, áreas, usuarios, proveedores fijos (con su CLABE) y el banco emulado.
-3. Crea 6 compras YA aprobadas, con su OC enviada al proveedor y «esperando material».
+3. Crea 6 requisiciones YA validadas (eventos simulados) con su OC enviada y «esperando material».
+   Después, el robot sigue simulando requisiciones nuevas cada MINUTOS_ENTRE_REQUISICIONES.
 4. Fabrica facturas XML de prueba (buenas y malas) en datos_prueba/facturas/.
 
 Todos los nombres, RFC e importes son ficticios (regla de la guía: no usar datos reales).
@@ -21,6 +22,7 @@ from pathlib import Path
 import pyodbc
 
 from logix import config
+from logix import simulador
 from logix.banco_emulado import digito_verificador
 from logix.cfdi_simulado import generar_xml
 from logix.seguridad import generar_hash
@@ -37,16 +39,18 @@ PARAMETROS = [
     ("HORAS_AVISO_ANTES_DE_CANCELAR", "5", "Horas antes del día 7 en que se avisa que se va a cancelar"),
     ("HORAS_ESPERA_FACTURA", "48", "Horas para mandar la factura después de que llegó el material"),
     ("REINTENTOS_BANCO", "3", "Intentos automáticos cuando el banco responde «error general»"),
+    ("MINUTOS_ENTRE_REQUISICIONES", "60",
+     "Cada cuántos minutos llega una requisición validada simulada (0 = simulador apagado)"),
+    ("MINUTOS_PAGO_MIN", "5", "Minutos mínimos que tarda el pago en salir al banco después del expediente"),
+    ("MINUTOS_PAGO_MAX", "10", "Minutos máximos que tarda el pago en salir al banco (0 = inmediato)"),
 ]
 SALDO_INICIAL_BANCO = Decimal("250000.00")      # saldo simulado de la cuenta del Tec
 LIMITE_POR_OPERACION = Decimal("100000.00")
 
-AREAS = ["Departamento de Sistemas y Computación", "Departamento de Ciencias Básicas",
-         "Recursos Materiales y Servicios", "Recursos Financieros"]
+AREAS = list(simulador.DEPARTAMENTOS) + ["Recursos Materiales y Servicios", "Recursos Financieros"]
 
-# (usuario, nombre simulado, rol, área)
+# (usuario, nombre simulado, rol, área). Adquisiciones ya no usa Logix (sus requisiciones son eventos simulados).
 USUARIOS = [
-    ("adquisiciones", "Patricia Demo Adquisiciones", "ADQUISICIONES", "Recursos Materiales y Servicios"),
     ("almacen", "Luis Alberto Demo · Jefe de Almacén", "ALMACEN", "Recursos Materiales y Servicios"),
     ("finanzas", "Gabriela Demo Finanzas", "FINANZAS", "Recursos Financieros"),
     ("admin", "Administrador Logix", "ADMIN", None),
@@ -57,25 +61,27 @@ USUARIOS = [
 PROVEEDORES = [
     ("Papelería Demo del Altiplano S.A. de C.V.", "PDA010101AA1", "01270000123456789"),
     ("Cómputo Demo S.A. de C.V.", "CDE020202BB2", "01470000987654321"),
-    ("Comercial Demo S.A. de C.V.", "COD030303CC3", "07270000555666777"),
     ("Eléctrica Demo S.A. de C.V.", "ELD040404DD4", "02170000111222333"),
+    ("Limpieza Demo del Altiplano S.A. de C.V.", "LDA050505EE5", "03270000444555666"),
 ]
 
-# Compras ya aprobadas, con su OC enviada y esperando el material:
-# (folio OC, RFC proveedor, área solicitante, días desde que se envió, [(descripción, unidad, cantidad, precio con IVA)])
+# Requisiciones ya validadas (eventos simulados) con su OC enviada y esperando el material.
+# El proveedor sale de la partida del departamento (simulador.PROVEEDOR_DE_PARTIDA).
+# (folio OC, departamento, días desde que se envió, [(descripción, unidad, cantidad, precio con IVA)])
 COMPRAS = [
-    ("OC-2026-0001", "PDA010101AA1", "Departamento de Sistemas y Computación", 4,
-     [("Plumones para pizarrón blanco (caja con 4)", "Caja", 10, 95),
-      ("Hojas blancas tamaño carta (paquete 500)", "Paquete", 5, 120)]),
-    ("OC-2026-0002", "CDE020202BB2", "Departamento de Sistemas y Computación", 2,
+    ("OC-2026-0001", "Departamento de Recursos Humanos", 4,
+     [("Hojas blancas tamaño carta (paquete 500)", "Paquete", 10, 120),
+      ("Bolígrafos tinta azul (caja con 12)", "Caja", 5, 65)]),
+    ("OC-2026-0002", "Departamento de Sistemas y Computación", 2,
      [("Mouse óptico USB", "Pieza", 2, 150), ("Tóner para impresora láser", "Pieza", 1, 1450)]),
-    ("OC-2026-0003", "COD030303CC3", "Departamento de Ciencias Básicas", 1,
-     [("Cable HDMI 2 m", "Pieza", 3, 180)]),
-    ("OC-2026-0004", "ELD040404DD4", "Recursos Materiales y Servicios", 1,
+    ("OC-2026-0003", "Servicios Generales (limpieza)", 1,
+     [("Jabón líquido para manos (garrafa 4 L)", "Garrafa", 4, 140),
+      ("Detergente en polvo (bolsa 1 kg)", "Bolsa", 10, 48)]),
+    ("OC-2026-0004", "Departamento de Mantenimiento de Equipo", 1,
      [("Foco LED 12 W", "Pieza", 20, 45)]),
-    ("OC-2026-0005", "PDA010101AA1", "Departamento de Ciencias Básicas", 0,
-     [("Folders tamaño carta (paquete 100)", "Paquete", 2, 210)]),
-    ("OC-2026-0006", "CDE020202BB2", "Departamento de Sistemas y Computación", 0,
+    ("OC-2026-0005", "Departamento de Ciencias Básicas", 0,
+     [("Plumones para pizarrón blanco (caja con 4)", "Caja", 6, 95)]),
+    ("OC-2026-0006", "Departamento de Sistemas y Computación", 0,
      [("Teclado USB", "Pieza", 3, 260)]),
 ]
 
@@ -136,19 +142,25 @@ def cargar_catalogos(cur):
 
 
 def crear_compras(cur) -> dict:
-    """Crea compras ya aprobadas con su OC esperando material. Regresa {folio_oc: datos}."""
-    print("3/4  Creando órdenes de compra ya aprobadas ...")
+    """Crea requisiciones validadas con su OC esperando material. Regresa {folio_oc: datos}."""
+    print("3/4  Creando requisiciones validadas y sus órdenes de compra ...")
     ocs = {}
-    cur.execute("SELECT id FROM usuarios WHERE usuario = 'adquisiciones'")
-    adq_id = cur.fetchone()[0]
-    for folio_oc, rfc, area, dias, lineas in COMPRAS:
+    for n, (folio_oc, area, dias, lineas) in enumerate(COMPRAS, 1):
         hace = datetime.now() - timedelta(days=dias)
+        subdireccion, partida, justificacion, _ = simulador.DEPARTAMENTOS[area]
+        rfc = simulador.PROVEEDOR_DE_PARTIDA[partida]
+        # La requisición llegó validada un poco antes de que saliera la OC.
+        cur.execute("INSERT INTO requisiciones (folio, area_solicitante, partida, partida_nombre, justificacion, "
+                    "firmas, fecha) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    f"REQ-{date.today().year}-{n:04d}", area, partida, simulador.PARTIDAS[partida], justificacion,
+                    simulador.firmas_de(area, subdireccion), hace - timedelta(minutes=5))
+        req_id = cur.fetchone()[0]
         cur.execute("SELECT id, razon_social FROM proveedores WHERE rfc = ?", rfc)
         prov_id, razon = cur.fetchone()
         total = sum(Decimal(c) * Decimal(p) for _, _, c, p in lineas)
-        cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, area_solicitante, total, estatus, fecha, "
-                    "registrada_por) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, 'ESPERANDO_MATERIAL', ?, ?)",
-                    folio_oc, prov_id, area, total, hace, adq_id)
+        cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, requisicion_id, area_solicitante, total, "
+                    "estatus, fecha) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?, 'ESPERANDO_MATERIAL', ?)",
+                    folio_oc, prov_id, req_id, area, total, hace)
         oc_id = cur.fetchone()[0]
         detalle = []
         for desc, unidad, cant, precio in lineas:
@@ -157,7 +169,7 @@ def crear_compras(cur) -> dict:
             detalle.append((desc, Decimal(cant), Decimal(precio)))
         cur.execute("INSERT INTO bitacora (fecha, actor, entidad, entidad_id, accion, valor_nuevo, detalle) "
                     "VALUES (?, 'GENERADOR', 'OC', ?, 'DATOS_SIMULADOS', 'ESPERANDO_MATERIAL', ?)",
-                    hace, oc_id, f"{folio_oc} registrada para pruebas (compra ya aprobada)")
+                    hace, oc_id, f"{folio_oc} de la requisición REQ-{date.today().year}-{n:04d} (validada)")
         ocs[folio_oc] = {"rfc": rfc, "razon": razon, "total": total, "detalle": detalle}
     return ocs
 

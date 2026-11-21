@@ -11,8 +11,9 @@ En el diagrama del 19-nov-2026 una compra se cancela por cinco motivos:
 En todos los casos pasa lo mismo:
   1. La OC queda CANCELADA con su motivo (y queda en la bitácora).
   2. Si el material ya estaba en almacén, se marca «por devolver» al proveedor.
-  3. Se avisa al PROVEEDOR y a ADQUISICIONES por correo y Telegram
+  3. Se avisa al PROVEEDOR por correo y Telegram con la razón
      (y a Almacén si hay material que regresar, y a Finanzas si el expediente ya le había llegado).
+     Adquisiciones ya no participa: la compra salió de una requisición validada (evento simulado).
 """
 from . import avisos, db
 from .errores import ReglaNegocio
@@ -34,7 +35,7 @@ def cancelar(cur, oc_id: int, tipo: str, motivo: str, actor: str) -> str:
         raise ValueError(f"Tipo de cancelación desconocido: {tipo}")
     motivo = (motivo or "").strip()
     if len(motivo) < 5:
-        raise ReglaNegocio("Escribe la razón de la cancelación o devolución (para el proveedor y Adquisiciones).")
+        raise ReglaNegocio("Escribe la razón de la cancelación o devolución (se le manda al proveedor).")
     cur.execute("SELECT folio, estatus, proveedor_id, total FROM ordenes_compra WHERE id = ?", oc_id)
     fila = cur.fetchone()
     if not fila:
@@ -63,9 +64,6 @@ def cancelar(cur, oc_id: int, tipo: str, motivo: str, actor: str) -> str:
     avisos.a_proveedor(cur, proveedor_id, f"Compra cancelada · {folio}",
                        f"La orden de compra {folio} por ${total:,.2f} fue CANCELADA.\n"
                        f"Causa: {titulo}.\nRazón: {motivo}.{devolucion}")
-    avisos.a_rol(cur, "ADQUISICIONES", f"Compra cancelada · {folio}",
-                 f"Logix canceló la OC {folio} (${total:,.2f}). Causa: {titulo}. Razón: {motivo}. "
-                 "Ya se le avisó al proveedor por correo y Telegram.")
     if hay_material and tipo != "DEVOLUCION_ALMACEN":
         avisos.a_rol(cur, "ALMACEN", f"Material por devolver · {folio}",
                      f"La OC {folio} se canceló ({titulo}). Regrese el material al proveedor y márquelo "

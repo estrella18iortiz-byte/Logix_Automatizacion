@@ -22,7 +22,7 @@ FUENTE_B = "C:/Windows/Fonts/arialbd.ttf"
 # Colores por actor (relleno, borde)
 COLOR = {
     "inicio": ("#0B2545", "#0B2545"),
-    "adq": ("#DCEBFA", "#2F6DB5"),       # Adquisiciones
+    "adq": ("#DCEBFA", "#2F6DB5"),       # Departamento que pide (evento simulado)
     "robot": ("#D8F3FC", "#00A8E8"),     # robots de Logix
     "almacen": ("#DDF3E4", "#2E9E5B"),   # Jefe de Almacén
     "finanzas": ("#FFF1CC", "#C48A00"),  # Recursos Financieros / banco
@@ -229,7 +229,7 @@ class Diagrama:
 
 def leyenda(dg, x, y):
     dg.texto("Quién hace cada paso:", x, y, 13, True)
-    for k, (clave, texto) in enumerate([("adq", "Adquisiciones"), ("almacen", "Jefe de Almacén (persona)"),
+    for k, (clave, texto) in enumerate([("adq", "Departamento (requisición validada · evento simulado)"), ("almacen", "Jefe de Almacén (persona)"),
                                         ("robot", "Robots de Logix (automático)"),
                                         ("finanzas", "Recursos Financieros / banco emulado"),
                                         ("cancela", "Cancelación (aviso por correo y Telegram)")]):
@@ -239,18 +239,20 @@ def leyenda(dg, x, y):
 
 # =============================================================================== 1. flujo
 def flujo():
-    dg = Diagrama("01_flujo_proceso", 1240, 1800, "Logix 3.0 · Diagrama de flujo del proceso (19-nov-2026)")
+    dg = Diagrama("01_flujo_proceso", 1240, 1800, "Logix 3.1 · Diagrama de flujo del proceso (20-nov-2026, sin Adquisiciones)")
     C, I, D = 560, 190, 930             # columnas: centro, izquierda, derecha
     dg.nodo("ini", "Inicio", C, 70, 160, 46, "terminal", "inicio")
-    dg.nodo("p1", "Petición aceptada y validada (compra aprobada, proveedor fijo)", C, 150, 280, 56, color="adq")
-    dg.nodo("p2", "R1: orden de compra en PDF con QR al proveedor por Telegram y correo", C, 245, 280, 64)
-    dg.nodo("d1", "Jefe de Almacén revisa el material (máx. 7 días)", C, 380, 240, 120, "decision", "almacen")
-    dg.nodo("dev", "Devolución: el jefe escribe la razón → compra cancelada; aviso a Adquisiciones y al proveedor",
+    dg.nodo("p1", "R0: llega una requisición YA validada (001-03, partida, 4 firmas) · evento simulado",
+            C, 150, 300, 60, color="adq")
+    dg.nodo("p2", "R1: genera sola la OC (001-05) y la manda en PDF con QR al proveedor fijo (Telegram y correo)",
+            C, 245, 300, 64)
+    dg.nodo("d1", "Jefe de Almacén compara lo que llegó con lo aceptado (máx. 7 días)", C, 380, 240, 120, "decision", "almacen")
+    dg.nodo("dev", "Devolución: el jefe escribe la razón → compra cancelada; aviso al proveedor",
             I, 380, 260, 84, color="cancela")
     dg.nodo("fin1", "Fin", I, 490, 120, 40, "terminal", "inicio")
     dg.nodo("pl", "R3: día 3 recordatorio al proveedor · 5 h antes del día 7, último aviso", D, 380, 270, 64)
     dg.nodo("d7", "¿Ya pasaron 7 días?", D, 510, 200, 100, "decision")
-    dg.nodo("c7", "Compra cancelada: el material no llegó; aviso al proveedor y a Adquisiciones",
+    dg.nodo("c7", "Compra cancelada: el material no llegó; aviso al proveedor",
             D, 650, 270, 70, color="cancela")
     dg.nodo("fin2", "Fin", D, 750, 120, 40, "terminal", "inicio")
     dg.nodo("ok", "Llegó bien: entrada y salida automáticas (ENT / SAL)", C, 530, 280, 56, color="almacen")
@@ -264,13 +266,13 @@ def flujo():
     dg.nodo("exp", "R4: expediente PDF con SHA-256 llega a Recursos Financieros", C, 960, 280, 60)
     dg.nodo("pay", "R5: pago automático al banco emulado", C, 1070, 280, 56, color="finanzas")
     dg.nodo("db", "¿El banco confirma?", C, 1200, 210, 110, "decision", "finanzas")
-    dg.nodo("conf", "Mensaje al proveedor: pago confirmado (clave SPEI); aviso a Adquisiciones y Finanzas",
+    dg.nodo("conf", "Mensaje al proveedor: pago confirmado (clave SPEI). Finanzas no tuvo que hacer nada",
             C, 1350, 280, 70)
     dg.nodo("fin4", "Fin", C, 1460, 120, 40, "terminal", "inicio")
     dg.nodo("dg", "¿Error general y menos de 3 intentos?", D, 1200, 230, 120, "decision", "finanzas")
-    dg.nodo("err", "Aviso a Finanzas · proveedor: «pago en proceso» (o «corrija su CLABE»)", D, 1350, 270, 64)
+    dg.nodo("err", "Falla a la bandeja de Finanzas · proveedor: «pago en proceso» (o «corrija su CLABE»)", D, 1350, 270, 64)
     dg.nodo("dfin", "Finanzas decide", D, 1480, 190, 100, "decision", "finanzas")
-    dg.nodo("cp", "Compra cancelada con motivo: aviso al proveedor y a Adquisiciones; material por devolver",
+    dg.nodo("cp", "Compra cancelada con motivo: aviso al proveedor; material por devolver",
             D, 1630, 280, 76, color="cancela")
     dg.nodo("fin5", "Fin", D, 1740, 120, 40, "terminal", "inicio")
 
@@ -314,7 +316,7 @@ def flujo():
 
 # =============================================================================== 2. estados
 def estados():
-    dg = Diagrama("02_estados_oc", 1320, 800, "Logix 3.0 · Estados de una orden de compra")
+    dg = Diagrama("02_estados_oc", 1320, 800, "Logix 3.1 · Estados de una orden de compra")
     dg.nodo("ini", "", 80, 150, 26, 26, "inicio")
     dg.nodo("em", "ESPERANDO_MATERIAL\n(máx. 7 días)", 320, 150, 240, 64, "estado")
     dg.nodo("mr", "MATERIAL_RECIBIDO\n(factura en 48 h)", 320, 360, 240, 64, "estado")
@@ -324,7 +326,7 @@ def estados():
     dg.nodo("ca", "CANCELADA\n(aviso por correo y Telegram)", 320, 580, 240, 64, "estado", "cancela")
     dg.nodo("finp", "", 1000, 580, 26, 26, "fin")
     dg.nodo("finc", "", 320, 730, 26, 26, "fin")
-    dg.arista("ini", "em", "R1 envía la OC", sale=(1, 0.5), entra=(0, 0.5), pos_texto=(140, 130))
+    dg.arista("ini", "em", "Requisición validada → R1 envía la OC", sale=(1, 0.5), entra=(0, 0.5), pos_texto=(140, 130))
     dg.arista("em", "mr", "Jefe de Almacén: llegó bien (falta factura)", pos_texto=(420, 255))
     dg.arista("em", "ef", "Llegó bien y la factura ya estaba validada", sale=(1, 0.5), entra=(0.5, 0),
               puntos=[(760, 150)], pos_texto=(600, 150))
@@ -345,12 +347,14 @@ def estados():
 
 # =============================================================================== 3. modelo de datos
 def modelo():
-    dg = Diagrama("03_modelo_datos", 1320, 900, "Logix 3.0 · Modelo de datos (logix_db, 14 tablas)")
+    dg = Diagrama("03_modelo_datos", 1320, 900, "Logix 3.1 · Modelo de datos (logix_db, 15 tablas)")
     T = lambda id_, txt, x, y, h: dg.nodo(id_, txt, x, y, 250, h, "tabla", "tabla")  # noqa: E731
     T("areas", "areas\nPK id\nnombre", 150, 140, 80)
     T("usuarios", "usuarios\nPK id\nusuario, rol, correo\ntelegram_chat_id\nFK area_id", 150, 330, 120)
     T("proveedores", "proveedores (fijos)\nPK id\nrazon_social, rfc, correo\nclabe\ntelegram_chat_id", 1160, 140, 120)
-    T("oc", "ordenes_compra\nPK id\nfolio, total, estatus, fecha\nFK proveedor_id, registrada_por\ntipo/motivo_cancelacion\n"
+    T("req", "requisiciones (evento simulado)\nPK id\nfolio, area_solicitante\npartida, justificacion\nfirmas (4)",
+      405, 140, 110)
+    T("oc", "ordenes_compra\nPK id\nfolio, total, estatus, fecha\nFK proveedor_id, requisicion_id\ntipo/motivo_cancelacion\n"
             "material_por_devolver", 660, 330, 150)
     T("det", "oc_detalle\nPK id\nFK oc_id\ndescripcion, cantidad, precio", 660, 120, 100)
     T("fac", "facturas\nPK id\nFK oc_id\nuuid, total, moneda\nresultado, detalle", 420, 600, 120)
@@ -364,7 +368,7 @@ def modelo():
                "bitacora (inmutable, trigger)", 400, 800, 100)
     dg.arista("usuarios", "areas", "N : 1", sale=(0.5, 0), entra=(0.5, 1))
     dg.arista("oc", "proveedores", "N : 1", sale=(1, 0.2), entra=(0.5, 1), puntos=[(1160, 285)])
-    dg.arista("oc", "usuarios", "registra · N : 1", sale=(0, 0.5), entra=(1, 0.5))
+    dg.arista("oc", "req", "1 : 1", sale=(0.2, 0), entra=(0.5, 1))
     dg.arista("det", "oc", "N : 1")
     dg.arista("fac", "oc", "N : 1", sale=(0.5, 0), entra=(0.2, 1), puntos=[(420, 450), (585, 450)])
     dg.arista("rec", "oc", "1 : 1", sale=(0.5, 0), entra=(0, 0.85), puntos=[(150, 480), (470, 480), (470, 382.5)])

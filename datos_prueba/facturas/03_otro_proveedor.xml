@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-19T22:32:39"
-  SubTotal="465.51" Moneda="MXN" Total="540.00" TipoDeComprobante="I" Exportacion="01"
+  Version="4.0" Serie="A" Folio="303" Fecha="2026-11-20T19:27:41"
+  SubTotal="896.56" Moneda="MXN" Total="1040.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
   <cfdi:Emisor Rfc="PDA010101AA1" Nombre="Papelería Demo del Altiplano S.A. de C.V." RegimenFiscal="601"/>
   <cfdi:Receptor Rfc="ITM990101AB1" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"
     RegimenFiscalReceptor="603" UsoCFDI="G03"/>
   <cfdi:Conceptos>
-    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="3" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Cable HDMI 2 m" ValorUnitario="155.17" Importe="465.51" ObjetoImp="02"/>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="4" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Jabón líquido para manos (garrafa 4 L)" ValorUnitario="120.69" Importe="482.76" ObjetoImp="02"/>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="10" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Detergente en polvo (bolsa 1 kg)" ValorUnitario="41.38" Importe="413.80" ObjetoImp="02"/>
   </cfdi:Conceptos>
-  <cfdi:Impuestos TotalImpuestosTrasladados="74.49"/>
+  <cfdi:Impuestos TotalImpuestosTrasladados="143.44"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="85940156-7B9B-402A-BB8A-8332867FE5FE" FechaTimbrado="2026-11-19T22:32:39"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="B34D71DD-C2C2-43AE-ABE2-70E53332FB74" FechaTimbrado="2026-11-20T19:27:41"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

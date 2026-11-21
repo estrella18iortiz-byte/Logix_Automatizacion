@@ -92,12 +92,15 @@ def procesar_factura(cur, contenido: bytes, nombre_archivo: str, folio_oc: str |
         db.bitacora(cur, ACTOR, "OC", oc_id, "FACTURA_VALIDADA", nuevo=factura.uuid,
                     detalle=f"{factura.serie_folio} ${factura.total:,.2f}")
         if oc.estatus == "MATERIAL_RECIBIDO":
-            siguiente = "El material ya está en almacén: su expediente pasa a Recursos Financieros para el pago."
+            siguiente = ("Su material ya está en nuestro Almacén: su expediente pasa a Recursos Financieros para el "
+                         "pago. En un momento le llega su ticket.")
         else:
-            siguiente = "Siguiente paso: entregar el material en nuestro Almacén."
-        acuse = (f"Hola, {oc.nombre_proveedor}. Recibimos y validamos su factura {factura.serie_folio} "
-                 f"(folio fiscal {factura.uuid}) por ${factura.total:,.2f} para la OC {oc.folio}. {siguiente}")
-        avisos.a_proveedor(cur, prov_id, f"Factura validada · {oc.folio}", acuse, correo_remitente)
+            siguiente = ("Siguiente paso: entregar el material en nuestro Almacén. Le avisaremos cuando lo "
+                         "recibamos.")
+        acuse = (f"✅ Su factura se recibió correctamente.\n\nHola, {oc.nombre_proveedor.rstrip('.')}. Recibimos y validamos su "
+                 f"factura {factura.serie_folio} (folio fiscal {factura.uuid}) por ${factura.total:,.2f} para la orden "
+                 f"{oc.folio}. {siguiente}\n\nPara ver cómo va, escriba «{oc.folio}» en este chat.")
+        avisos.a_proveedor(cur, prov_id, f"Factura recibida y validada · {oc.folio}", acuse, correo_remitente)
         if oc.estatus == "MATERIAL_RECIBIDO":
             # Ya están la factura y el material: R4 arma el expediente y R5 paga.
             expediente.armar_y_enviar(cur, oc_id)

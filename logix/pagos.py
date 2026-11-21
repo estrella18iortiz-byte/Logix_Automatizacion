@@ -4,7 +4,7 @@ Cuando el expediente llega completo a Recursos Financieros (factura validada + m
 confirmado por el Jefe de Almacén), Logix manda la transferencia al banco emulado sin
 que nadie presione nada. Lo que hace con la respuesta del banco:
 
-  CONFIRMADO          OC PAGADA · aviso al proveedor, a Adquisiciones y a Finanzas
+  CONFIRMADO          OC PAGADA · aviso al proveedor (Finanzas no recibe nada: solo ve las fallas)
   PAGO_DUPLICADO      ya se había pagado → también queda PAGADA (no se paga dos veces)
   ERROR_GENERAL       se reintenta SOLO, hasta 3 intentos (uno por vuelta del robot);
                       si sigue fallando → error para Finanzas
@@ -14,7 +14,7 @@ que nadie presione nada. Lo que hace con la respuesta del banco:
   CUENTA_INVALIDA     igual, pero al proveedor se le pide corregir su CLABE.
 
 Solo cuando Finanzas presiona «Cancelar pago» la compra se cancela y se avisa al
-proveedor y a Adquisiciones (cancelacion.py).
+proveedor (cancelacion.py).
 """
 from . import avisos, banco_emulado, cancelacion, db
 from .errores import ReglaNegocio
@@ -83,12 +83,34 @@ def _confirmar(cur, oc_id, folio, proveedor_id, monto, r, intentos, estatus_oc):
     db.bitacora(cur, ACTOR, "OC", oc_id, "PAGADA", estatus_oc, "PAGADA",
                 f"Banco confirmó · clave de rastreo {r.clave_rastreo}")
     avisos.a_proveedor(cur, proveedor_id, f"Pago confirmado · {folio}",
-                       f"¡Todo está bien! El banco confirmó el pago de la OC {folio} por ${monto:,.2f}. "
+                       f"¡Todo está bien! El banco confirmó el pago de la orden {folio} por ${monto:,.2f}. "
                        f"Clave de rastreo: {r.clave_rastreo}. Gracias.")
-    avisos.a_rol(cur, "ADQUISICIONES", f"Compra pagada · {folio}",
-                 f"El banco confirmó el pago de la OC {folio} (clave {r.clave_rastreo}). La compra quedó cerrada.")
-    avisos.a_rol(cur, "FINANZAS", f"Pago confirmado · {folio}",
-                 f"El banco confirmó el pago automático de la OC {folio} por ${monto:,.2f} (clave {r.clave_rastreo}).")
+
+
+def programar(cur, oc_id: int) -> int:
+    """Decide cuándo sale el pago: entre MINUTOS_PAGO_MIN y MINUTOS_PAGO_MAX. Regresa los minutos (0 = ahora)."""
+    import random
+    from datetime import datetime, timedelta
+    minimo = int(db.parametro(cur, "MINUTOS_PAGO_MIN"))
+    maximo = max(minimo, int(db.parametro(cur, "MINUTOS_PAGO_MAX")))
+    minutos = random.randint(minimo, maximo) if maximo > 0 else 0
+    if minutos:
+        cur.execute("UPDATE pagos SET estatus = 'PROGRAMADO', programado_para = ? WHERE oc_id = ?",
+                    datetime.now() + timedelta(minutes=minutos), oc_id)
+        db.bitacora(cur, ACTOR, "OC", oc_id, "PAGO_PROGRAMADO", detalle=f"Sale al banco en {minutos} min")
+    return minutos
+
+
+def pagar_programados(cur, ahora=None) -> int:
+    """Vuelta del robot: manda al banco los pagos cuya hora ya llegó. Regresa cuántos mandó."""
+    from datetime import datetime
+    cur.execute("SELECT oc_id FROM pagos WHERE estatus = 'PROGRAMADO' AND programado_para <= ?",
+                ahora or datetime.now())
+    ids = [f[0] for f in cur.fetchall()]
+    for oc_id in ids:
+        cur.execute("UPDATE pagos SET estatus = 'EN_PROCESO' WHERE oc_id = ?", oc_id)
+        pagar(cur, oc_id)
+    return len(ids)
 
 
 def reintentar_pendientes(cur) -> int:
@@ -113,7 +135,7 @@ def reintentar(cur, usuario: dict, oc_id: int) -> str:
 
 
 def cancelar_pago(cur, usuario: dict, oc_id: int, motivo: str) -> str:
-    """Botón «Cancelar pago»: la compra se cancela y se avisa al proveedor y a Adquisiciones."""
+    """Botón «Cancelar pago»: la compra se cancela y se avisa al proveedor."""
     folio, estatus, *_ = _datos(cur, oc_id)
     if estatus != "PAGO_CON_ERROR":
         raise ReglaNegocio("Solo se cancela el pago de una orden que tuvo un error del banco.")
@@ -131,8 +153,13 @@ def corregir_clabe(cur, usuario: dict, oc_id: int, clabe: str):
 
 
 # ------------------------------------------------------------ bandejas
+def fallas(cur) -> list[dict]:
+    """Bandeja de Finanzas: SOLO los pagos que el banco rechazó y necesitan una decisión de dinero."""
+    return [f for f in en_finanzas(cur) if f["estatus"] == "PAGO_CON_ERROR"]
+
+
 def en_finanzas(cur) -> list[dict]:
-    """Bandeja de Finanzas: expedientes con pago en curso o con error del banco."""
+    """Expedientes con pago en curso o con error del banco."""
     cur.execute("""SELECT oc.id, oc.folio, oc.estatus, p.razon_social AS proveedor, p.clabe, oc.total,
                           pg.fecha_turno, pg.estatus AS estatus_pago, pg.intentos, pg.codigo_error,
                           pg.detalle_error, e.ruta_pdf, e.memorandum

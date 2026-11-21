@@ -1,8 +1,7 @@
-"""Robot R1 · Envío de la orden de compra al proveedor.
+"""Robot R1 · Genera la orden de compra y se la manda al proveedor (SIN que nadie la capture).
 
-La petición YA fue aceptada y validada (eso pasa antes de Logix) y el proveedor es uno de
-los proveedores FIJOS ya avalados. Adquisiciones solo registra la orden de compra:
-proveedor, área que pidió el material y qué se compró. Logix hace lo demás, sin que nadie lo pida:
+La requisición llega YA VALIDADA (evento simulado, simulador.py) y el proveedor es uno de
+los proveedores FIJOS ya avalados para esa partida. En cuanto llega, Logix:
   1. Le pone folio (OC-2026-0001) y genera el PDF de la orden (formato 001-05) con QR.
   2. Se lo manda al proveedor por correo y Telegram, con el plazo de 7 días para entregar
      el material y las instrucciones para facturar.
@@ -21,10 +20,10 @@ def proveedores_activos(cur) -> list[dict]:
     return db.filas(cur)
 
 
-def registrar_compra(cur, usuario: dict, proveedor_id: int, area_solicitante: str,
-                     lineas: list[tuple[str, str, object, object]]) -> str:
-    """Registra una compra ya aprobada. lineas = [(descripción, unidad, cantidad, precio con IVA)].
-    Regresa el folio de la OC."""
+def generar_oc(cur, proveedor_id: int, area_solicitante: str, lineas: list[tuple[str, str, object, object]],
+               requisicion_id: int | None = None, actor: str = "ROBOT-R1") -> str:
+    """Genera la OC de una requisición validada. lineas = [(descripción, unidad, cantidad, precio con IVA)].
+    Aunque la requisición ya viene validada, se revisa que los datos tengan sentido. Regresa el folio."""
     if not area_solicitante or not area_solicitante.strip():
         raise ReglaNegocio("Escriba el área que solicitó el material.")
     if not lineas:
@@ -48,15 +47,19 @@ def registrar_compra(cur, usuario: dict, proveedor_id: int, area_solicitante: st
         raise ReglaNegocio("Elija un proveedor activo del catálogo.")
 
     folio = db.siguiente_folio(cur, "ordenes_compra", "OC")
-    cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, area_solicitante, total, registrada_por) "
+    cur.execute("INSERT INTO ordenes_compra (folio, proveedor_id, requisicion_id, area_solicitante, total) "
                 "OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?)",
-                folio, proveedor_id, area_solicitante.strip(), total, usuario["id"])
+                folio, proveedor_id, requisicion_id, area_solicitante.strip(), total)
     oc_id = cur.fetchone()[0]
     for descripcion, unidad, cantidad, precio in renglones:
         cur.execute("INSERT INTO oc_detalle (oc_id, descripcion, unidad, cantidad, precio_unitario) "
                     "VALUES (?, ?, ?, ?, ?)", oc_id, descripcion, unidad, cantidad, precio)
-    db.bitacora(cur, usuario["usuario"], "OC", oc_id, "REGISTRA_COMPRA", nuevo=f"{folio} ${total:,.2f}",
-                detalle=f"Proveedor {prov[0]} · área {area_solicitante.strip()}")
+    req = ""
+    if requisicion_id:
+        cur.execute("SELECT folio FROM requisiciones WHERE id = ?", requisicion_id)
+        req = f" · requisición {cur.fetchone()[0]}"
+    db.bitacora(cur, actor, "OC", oc_id, "GENERA_OC", nuevo=f"{folio} ${total:,.2f}",
+                detalle=f"Proveedor {prov[0]} · área {area_solicitante.strip()}{req}")
     enviar_a_proveedor(cur, oc_id)
     return folio
 
@@ -75,10 +78,17 @@ def enviar_a_proveedor(cur, oc_id: int):
                 "INSERTED.total WHERE id = ?", str(ruta), oc_id)
     folio, proveedor_id, total = cur.fetchone()
     dias = db.parametro(cur, "DIAS_ESPERA_MATERIAL")
+    renglones = "\n".join(f"  • {l['cantidad'].normalize():f} {l['unidad']} · {l['descripcion']}"
+                          for l in lineas_oc(cur, oc_id))
     db.bitacora(cur, "ROBOT-R1", "OC", oc_id, "ENVIA_OC_PROVEEDOR", nuevo="ESPERANDO_MATERIAL")
+    # El mensaje dice QUÉ se compró y QUÉ puede hacer el proveedor; el PDF oficial va adjunto.
     avisos.a_proveedor(cur, proveedor_id, f"Orden de compra {folio}",
-                       f"Le enviamos la orden de compra {folio} por ${total:,.2f} (IVA incluido) en PDF "
-                       f"({ruta.name}). Entregue el material en nuestro Almacén en un máximo de {dias} días; si no "
-                       "llega, la compra se cancela. Para facturar: envíe el XML de su CFDI por Telegram (con el "
-                       f"folio en el pie del archivo) o al buzón de facturas con «{folio}» en el asunto. Logix lo "
-                       "validará en automático antes de pagar.")
+                       f"Le enviamos la orden de compra {folio} por ${total:,.2f} (IVA incluido). El PDF oficial "
+                       f"va adjunto.\n\nQué se compró:\n{renglones}\n\n"
+                       f"1) Entregue el material en nuestro Almacén en un máximo de {dias} días; si no llega, la "
+                       "compra se cancela.\n"
+                       "2) Envíe su factura: mande el archivo XML de su CFDI por este chat y escriba "
+                       f"«{folio}» en el pie del archivo (o por correo con «{folio}» en el asunto). Logix la valida "
+                       "en automático antes de pagar.\n"
+                       f"3) Para saber cómo va su compra y su pago, escriba aquí «{folio}» en cualquier momento.",
+                       adjunto=str(ruta))

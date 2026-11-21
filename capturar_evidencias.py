@@ -1,4 +1,4 @@
-"""Toma las capturas de pantalla de evidencia del flujo completo (diagrama del 19-nov-2026).
+"""Toma las capturas de pantalla de evidencia del flujo completo (Logix 3.1: eventos simulados, sin Adquisiciones).
 
     python capturar_evidencias.py
 
@@ -7,6 +7,7 @@ persona diera los clics) y guarda una imagen PNG de cada pantalla en evidencias/
 Los mensajes emergentes se contestan solos y quedan anotados en evidencias/LEEME.md.
 No toques el mouse mientras corre (tarda menos de un minuto).
 """
+import random
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -44,6 +45,7 @@ class DialogoFalso:
         return r
 
 
+panel.config.MODO_SIMULADO = True    # las capturas nunca envían correos ni Telegram reales
 panel.messagebox = MensajesFalsos
 panel.ctk.CTkInputDialog = DialogoFalso
 
@@ -110,6 +112,18 @@ def boton(app, texto):
     refrescar(app, 0.3)
 
 
+def combo(app, valor):
+    """Elige un valor en la primera lista desplegable de la pantalla."""
+    def buscar(w):
+        for h in w.winfo_children():
+            if isinstance(h, panel.ctk.CTkComboBox):
+                return h
+            r = buscar(h)
+            if r:
+                return r
+    buscar(app.contenido).set(valor)
+
+
 def sql(texto, *params):
     with db.conexion() as con:
         con.cursor().execute(texto, *params)
@@ -120,6 +134,7 @@ def main():
     for f in SALIDA.glob("*.png"):
         f.unlink()
     generar_datos.main()
+    sql("UPDATE parametros SET valor = '0' WHERE clave IN ('MINUTOS_PAGO_MIN', 'MINUTOS_PAGO_MAX')")  # pago al instante
     # Para que el semáforo de plazos tenga los tres colores: una OC a 4 h de vencer (rojo).
     sql("UPDATE ordenes_compra SET fecha = ? WHERE folio = 'OC-2026-0003'",
         datetime.now() - timedelta(days=6, hours=20))
@@ -130,33 +145,38 @@ def main():
     refrescar(app, 1)
     captura(app, "01_inicio_de_sesion.png", "Pantalla de inicio de sesión (contraseña de prueba logix2026).")
 
-    # ---------- Adquisiciones registra una compra aprobada (R1)
-    entrar(app, "adquisiciones")
-    captura(app, "02_adquisiciones_inicio.png", "Inicio de Adquisiciones: tarjetas por etapa y plazo del material (R3).")
-    app.ir("Registrar compra")
-    app.cb_prov.set(next(f"{p['razon_social']} · {p['rfc']}" for p in app.provs if p["rfc"] == "CDE020202BB2"))
-    app.e_area.insert(0, "Departamento de Sistemas y Computación")
-    for desc, uni, cant, precio in [("Mouse óptico USB", "Pieza", "5", "150"), ("Cable HDMI 2 m", "Pieza", "2", "180")]:
-        app.e_desc.insert(0, desc); app.e_unidad.insert(0, uni); app.e_cant.insert(0, cant); app.e_precio.insert(0, precio)
-        app._agregar_linea()
-    captura(app, "03_registrar_compra.png", "Adquisiciones captura la compra ya aprobada con un proveedor fijo.")
-    boton(app, "Registrar y enviar al proveedor")
-    captura(app, "04_compra_registrada_OC_enviada.png",
-            "R1 generó la OC-2026-0007 en PDF con QR y la mandó al proveedor por correo y Telegram.")
+    # ---------- Llega una requisición validada (evento simulado R0) → R1 genera la OC sola
+    entrar(app, "admin")
+    captura(app, "02_admin_inicio.png", "Inicio (admin): tarjetas por etapa y plazo del material (R3). "
+                                        "Adquisiciones ya no usa Logix.")
+    app.ir("Requisiciones")
+    random.seed(7)                      # para que la requisición simulada salga igual cada vez
+    combo(app, "Departamento de Recursos Humanos")
+    boton(app, "Simular requisición ahora")
+    seleccionar(tabla_de(app), "REQ-2026-0007")
+    captura(app, "03_requisicion_validada_simulada.png",
+            "Llegó la requisición REQ-2026-0007 de Recursos Humanos (formato 001-03, partida 21101, validada con "
+            "4 firmas). R1 generó sola la OC-2026-0007 para el proveedor fijo de papelería.")
+    app.ir("Consultar folio")
+    app.e_folio.insert(0, "OC-2026-0007")
+    app._buscar_folio()
+    captura(app, "04_oc_generada_automatica.png",
+            "La OC-2026-0007 salió sola de la requisición: R1 generó el PDF con QR y lo mandó al proveedor.")
 
     # ---------- Jefe de Almacén: plazos, devolución y llegó bien
     entrar(app, "almacen")
-    app.ir("Recepción")
-    captura(app, "05_almacen_plazos_7_dias.png",
-            "Jefe de Almacén: órdenes esperando material con semáforo del plazo de 7 días (rojo = vence pronto).")
+    seleccionar(tabla_de(app), "OC-2026-0007")
+    captura(app, "05_almacen_que_se_acepto.png",
+            "Jefe de Almacén: semáforo del plazo de 7 días y, al seleccionar una orden, exactamente qué se aceptó "
+            "comprar (requisición, artículos, unidades y cantidades) para compararlo con lo que llegó.")
     seleccionar(tabla_de(app), "OC-2026-0003")
     RESPUESTAS.append("Llegaron 3 cables, 1 con el conector roto")
     boton(app, "Devolución")
     captura(app, "06_almacen_devolucion_con_razon.png",
-            "Devolución: el jefe escribe la razón; la compra se cancela y se avisa a Adquisiciones y al proveedor.")
+            "Devolución: el jefe escribe la razón; la compra se cancela y se le avisa al proveedor.")
 
     # ---------- Proveedor manda factura correcta antes de que llegue el material (R2)
-    entrar(app, "adquisiciones")
+    entrar(app, "admin")
     app.ir("Buzón de facturas")
     app.e_oc_buzon.insert(0, "OC-2026-0007")
     app._factura_simulada(False)
@@ -172,33 +192,33 @@ def main():
     entrar(app, "almacen")
     app.ir("Recepción")
     seleccionar(tabla_de(app), "OC-2026-0007")
-    boton(app, "Llegó bien")
-    captura(app, "09_almacen_llego_bien_pago_automatico.png",
-            "El material llegó bien y la factura ya estaba validada: R4 armó el expediente y R5 pagó en el banco.")
+    boton(app, "Aceptar")
+    captura(app, "09_almacen_acepta_pago_automatico.png",
+            "El jefe aceptó el material y la factura ya estaba validada: R4 armó el expediente y R5 pagó en el banco.")
     entrar(app, "finanzas")
-    app.ir("Pagos")
-    captura(app, "10_finanzas_pago_confirmado.png", "Finanzas ve el pago confirmado por el banco con su clave de rastreo.")
+    captura(app, "10_finanzas_sin_fallas.png",
+            "Finanzas no tuvo que hacer nada: el pago salió solo. Su pantalla solo muestra fallas (ninguna).")
 
     # ---------- Error del banco: saldo insuficiente → Finanzas reintenta
     sql("UPDATE banco_cuenta SET saldo = 50 WHERE id = 1")
     entrar(app, "almacen")
     app.ir("Recepción")
     seleccionar(tabla_de(app), "OC-2026-0001")
-    boton(app, "Llegó bien")
-    entrar(app, "adquisiciones")
+    boton(app, "Aceptar")
+    entrar(app, "admin")
     app.ir("Buzón de facturas")
     app.e_oc_buzon.insert(0, "OC-2026-0001")
     app._factura_simulada(False)
     entrar(app, "finanzas")
-    app.ir("Pagos")
-    captura(app, "11_finanzas_error_saldo_insuficiente.png",
-            "El banco respondió SALDO_INSUFICIENTE: no se reintenta solo; Finanzas decide (reintentar o cancelar).")
+    captura(app, "11_finanzas_falla_saldo_insuficiente.png",
+            "Falla SALDO_INSUFICIENTE: Finanzas ve por qué falló, qué decidir y el dinero detenido (no se reintenta solo).")
+    entrar(app, "admin")
     app.ir("Banco emulado")
     with db.conexion() as con:
         banco_emulado.depositar(con.cursor(), 250000)
     app.ir("Banco emulado")
     captura(app, "12_banco_emulado.png", "Banco emulado: saldo, falla simulada y cada respuesta del banco.")
-    app.ir("Pagos")
+    entrar(app, "finanzas")
     seleccionar(tabla_de(app), "OC-2026-0001")
     boton(app, "Reintentar pago")
     captura(app, "13_finanzas_reintento_confirmado.png", "Con saldo, Finanzas reintentó y el banco confirmó el pago.")
@@ -208,8 +228,8 @@ def main():
     entrar(app, "almacen")
     app.ir("Recepción")
     seleccionar(tabla_de(app), "OC-2026-0006")
-    boton(app, "Llegó bien")
-    entrar(app, "adquisiciones")
+    boton(app, "Aceptar")
+    entrar(app, "admin")
     app.ir("Buzón de facturas")
     app.e_oc_buzon.insert(0, "OC-2026-0006")
     app._factura_simulada(False)
@@ -218,7 +238,6 @@ def main():
     for _ in range(2):
         boton(app, "Ejecutar todos los robots ahora")      # 2 vueltas = intentos 2 y 3
     entrar(app, "finanzas")
-    app.ir("Pagos")
     captura(app, "14_finanzas_error_general_3_intentos.png",
             "ERROR_GENERAL: el robot reintentó solo 3 veces; después pasó a Finanzas.")
     seleccionar(tabla_de(app), "OC-2026-0006")
@@ -226,7 +245,7 @@ def main():
     boton(app, "Cancelar pago")
     sql("UPDATE banco_cuenta SET falla_simulada = 'NINGUNA' WHERE id = 1")
     captura(app, "15_finanzas_cancela_pago.png",
-            "Finanzas canceló el pago con motivo: se avisó al proveedor y a Adquisiciones; el material se devuelve.")
+            "Finanzas canceló el pago con motivo: se le avisó al proveedor; el material se devuelve.")
 
     # ---------- Seguimiento, avisos, indicadores y bitácora
     app.ir("Consultar folio")
@@ -238,7 +257,6 @@ def main():
     app._buscar_folio()
     captura(app, "17_seguimiento_cancelada.png", "Seguimiento de una compra cancelada por factura no válida.")
     entrar(app, "almacen")
-    app.ir("Recepción")
     captura(app, "18_almacen_material_por_devolver.png", "Material por devolver al proveedor (compras canceladas).")
     entrar(app, "admin")
     app.ir("Robots y avisos")
@@ -251,7 +269,7 @@ def main():
 
     _pdfs()
     with open(SALIDA / "LEEME.md", "w", encoding="utf-8") as fh:
-        fh.write(f"# Evidencias · Logix 3.0 (diagrama del 19-nov-2026)\n\nGeneradas el {datetime.now():%d/%m/%Y %H:%M} "
+        fh.write(f"# Evidencias · Logix 3.1 (eventos simulados, sin Adquisiciones)\n\nGeneradas el {datetime.now():%d/%m/%Y %H:%M} "
                  "con `python capturar_evidencias.py` (datos simulados).\n\n")
         for archivo, descripcion, mensajes in NOTAS:
             fh.write(f"## {archivo}\n{descripcion}\n\n![{archivo}]({archivo})\n\n")

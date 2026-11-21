@@ -40,7 +40,7 @@ class BotTelegram(unittest.TestCase):
         self.api = TelegramFalso()
         self.cur.execute("SELECT codigo_telegram FROM proveedores WHERE rfc = 'PDA010101AA1'")
         self.cod_prov = self.cur.fetchone()[0]
-        self.cur.execute("SELECT codigo_telegram FROM usuarios WHERE usuario = 'adquisiciones'")
+        self.cur.execute("SELECT codigo_telegram FROM usuarios WHERE usuario = 'almacen'")
         self.cod_adq = self.cur.fetchone()[0]
 
     def tearDown(self):
@@ -105,7 +105,7 @@ class BotTelegram(unittest.TestCase):
     def test_avisos_van_al_chat_vinculado(self):
         self.decir(msg(CHAT_ADQ, f"/vincular {self.cod_adq}"))
         from logix import avisos
-        self.cur.execute("SELECT id FROM usuarios WHERE usuario = 'adquisiciones'")
+        self.cur.execute("SELECT id FROM usuarios WHERE usuario = 'almacen'")
         avisos.a_usuario(self.cur, self.cur.fetchone()[0], "Prueba", "Hola")
         self.cur.execute("SELECT COUNT(*) FROM notificaciones WHERE canal = 'TELEGRAM' AND destinatario = ?",
                          str(CHAT_ADQ))

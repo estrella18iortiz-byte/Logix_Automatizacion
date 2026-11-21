@@ -1,6 +1,6 @@
-# Prueba de usabilidad SUS · Logix 3.0
+# Prueba de usabilidad SUS · Logix 3.1
 
-**Para quién:** al menos **5 usuarios reales** (lo pide la práctica): personal que participa en el proceso. Lo ideal es al menos 1 de cada departamento: **Adquisiciones, Almacén y Recursos Financieros**; si no se completan 5, suma a otro personal del Tec que haga compras. Todas las personas hacen las 5 tareas. **No anotes nombres**: solo «Participante 1, 2, 3…» y su departamento. Meta: SUS ≥ 70.
+**Para quién:** al menos **5 usuarios reales** (lo pide la práctica): personal que participa en el proceso. Lo ideal es al menos 1 de **Almacén** y 1 de **Recursos Financieros** (son quienes usan Logix; Adquisiciones ya no, sus requisiciones son eventos simulados); si no se completan 5, suma a otro personal del Tec que haga compras. Todas las personas hacen las 5 tareas. **No anotes nombres**: solo «Participante 1, 2, 3…» y su departamento. Meta: SUS ≥ 70.
 **Versión para imprimir:** `docs/Encuesta_SUS_Logix.docx`.
 **Duración:** unos 10 minutos por persona. Antes de empezar, corre `REINICIAR_DATOS.bat` y abre `INICIAR_LOGIX.bat`.
 Contraseña de todos los usuarios: `logix2026`.
@@ -11,11 +11,11 @@ Contraseña de todos los usuarios: `logix2026`.
 
 | # | Tarea que le lees a la persona | Usuario | ¿La terminó? (Sí / Con ayuda / No) | Minutos |
 |---|---|---|---|---|
-| 1 | «Registra una compra ya aprobada: 5 *Cable HDMI 2 m* a $180 con el proveedor *Cómputo Demo*, para el *Departamento de Ciencias Básicas*. Envíasela al proveedor.» | `adquisiciones` | | |
-| 2 | «En el Buzón de facturas, simula que el proveedor manda la **factura correcta** de esa orden.» | `adquisiciones` | | |
-| 3 | «Eres el Jefe de Almacén: llegó el material de esa orden y está bien. Confírmalo (Logix paga solo).» | `almacen` | | |
+| 1 | «Como administrador, simula que llega una requisición del *Departamento de Recursos Humanos*. Dime qué folio de orden de compra generó Logix y quién la validó.» | `admin` | | |
+| 2 | «En el Buzón de facturas, simula que el proveedor manda la **factura correcta** de esa orden.» | `admin` | | |
+| 3 | «Eres el Jefe de Almacén: llegó el material de esa orden. Revisa qué se aceptó comprar (artículos y cantidades) y **acéptalo** (Logix paga solo).» | `almacen` | | |
 | 4 | «La orden *OC-2026-0002* llegó en mal estado: haz la **devolución** escribiendo la razón.» | `almacen` | | |
-| 5 | «Consulta en qué etapa va esa orden de compra.» | cualquiera | | |
+| 5 | «Eres de Recursos Financieros: revisa si hay alguna **falla de pago** que necesite tu decisión y consulta en qué etapa va la orden de la tarea 1.» | `finanzas` | | |
 
 Notas de lo que se le complicó a la persona:
 

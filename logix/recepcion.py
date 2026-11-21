@@ -7,8 +7,11 @@ revisar el material FÍSICO. El Jefe de Almacén tiene dos botones:
                      el expediente se arma y se paga en ese momento; si no, Logix le
                      PIDE la factura al proveedor (tiene 48 h para mandarla).
   «↩ Devolución»  → el material no llegó o llegó en mal estado. El jefe ESCRIBE LA RAZÓN
-                     (obligatoria); la compra se cancela y Logix le manda la razón a
-                     Adquisiciones y al proveedor por correo y Telegram.
+                     (obligatoria); la compra se cancela y Logix le manda la razón al
+                     proveedor por correo y Telegram.
+
+Para revisar, el jefe ve QUÉ se aceptó comprar: la requisición validada, el área,
+la partida y cada artículo con su unidad y cantidad (detalle_para_revisar).
 
 Si pasan 7 días sin que el jefe confirme, el robot R3 (plazos.py) cancela solo.
 """
@@ -32,6 +35,18 @@ def por_recibir(cur) -> list[dict]:
         f["vence"] = f["fecha"] + timedelta(days=dias)
         f["horas_restantes"] = max(0, int((f["vence"] - ahora).total_seconds() // 3600))
     return filas
+
+
+def detalle_para_revisar(cur, oc_id: int) -> dict:
+    """Lo que el Jefe de Almacén debe recibir: requisición validada + artículos, unidades y cantidades."""
+    from .compras import lineas_oc
+    cur.execute("""SELECT oc.folio, oc.area_solicitante, oc.total, p.razon_social AS proveedor,
+                          r.folio AS requisicion, r.partida, r.partida_nombre, r.justificacion, r.firmas
+                   FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
+                   LEFT JOIN requisiciones r ON r.id = oc.requisicion_id WHERE oc.id = ?""", oc_id)
+    d = db.filas(cur)[0]
+    d["lineas"] = lineas_oc(cur, oc_id)
+    return d
 
 
 def por_devolver(cur) -> list[dict]:
@@ -68,18 +83,21 @@ def confirmar_recepcion(cur, usuario: dict, oc_id: int, observaciones: str = "")
     proveedor_id = cur.fetchone()[0]
     db.bitacora(cur, usuario["usuario"], "OC", oc_id, "RECIBE_MATERIAL", "ESPERANDO_MATERIAL", "MATERIAL_RECIBIDO",
                 f"{entrada}/{salida}")
-    avisos.a_rol(cur, "ADQUISICIONES", f"Material recibido · {folio}",
-                 f"El Jefe de Almacén confirmó que el material de la OC {folio} llegó bien (entrada {entrada}).")
 
     cur.execute("SELECT COUNT(*) FROM facturas WHERE oc_id = ? AND resultado = 'VALIDA'", oc_id)
     if cur.fetchone()[0]:
-        # La factura ya estaba validada: el expediente se va a Finanzas y se paga ahora mismo.
+        # La factura ya estaba validada: se le confirma el material y el expediente se va a Finanzas.
+        avisos.a_proveedor(cur, proveedor_id, f"Material recibido · {folio}",
+                           f"✅ Nuestro Almacén recibió y revisó su material de la orden {folio} (entrada {entrada}). "
+                           "Su factura ya estaba validada, así que su expediente pasa a Recursos Financieros para "
+                           "el pago. En un momento le llega su ticket.")
         expediente.armar_y_enviar(cur, oc_id)
     else:
         horas = db.parametro(cur, "HORAS_ESPERA_FACTURA")
-        avisos.a_proveedor(cur, proveedor_id, f"Envíe su factura · {folio}",
-                           f"Recibimos su material de la OC {folio}. Envíe el XML de su factura (CFDI) por Telegram "
-                           f"o al buzón de facturas con «{folio}» en el asunto. Tiene {horas} horas; si no llega, "
+        avisos.a_proveedor(cur, proveedor_id, f"Material recibido · envíe su factura · {folio}",
+                           f"✅ Nuestro Almacén recibió y revisó su material de la orden {folio} (entrada {entrada}).\n\n"
+                           f"Ahora envíe su factura: mande el XML de su CFDI por este chat con «{folio}» en el pie "
+                           f"del archivo (o por correo con «{folio}» en el asunto). Tiene {horas} horas; si no llega, "
                            "la compra se cancela y el material se le devuelve.")
         db.bitacora(cur, "ROBOT-R3", "OC", oc_id, "PIDE_FACTURA", detalle=f"Plazo {horas} h")
     return entrada, salida

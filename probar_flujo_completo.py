@@ -6,6 +6,7 @@ Reinicia la base (generar_datos), ejecuta cada caso y guarda la evidencia en
 resultados/resultados_pruebas.csv (id, criterio de aceptación, resultado y tiempo).
 
 Recorre TODAS las ramas del diagrama:
+  · eventos: requisiciones validadas simuladas (R0) → OC automática (R1); sin Adquisiciones
   · material: recordatorio día 3, último aviso 5 h antes, cancelación día 7, devolución con razón
   · factura: 48 h sin factura, factura inválida (cancela y devuelve material), factura antes del material
   · pago: banco confirma, error general con 3 reintentos, saldo insuficiente, monto, divisa,
@@ -19,7 +20,7 @@ from pathlib import Path
 
 import generar_datos
 from logix import (banco_emulado, cancelacion, compras, consultas, notificador, pagos, plazos, recepcion,
-                   usuarios)
+                   simulador, usuarios)
 from logix import db
 from logix.cfdi_simulado import generar_xml
 from logix.errores import ReglaNegocio
@@ -27,7 +28,8 @@ from logix.robot_facturas import procesar_factura
 
 RAIZ = Path(__file__).resolve().parent
 RESULTADOS = []
-RFC_PROV = "CDE020202BB2"          # Cómputo Demo (proveedor fijo)
+RFC_PROV = "CDE020202BB2"          # Cómputo Demo (proveedor fijo de la partida 21401)
+AREA = "Departamento de Sistemas y Computación"   # su requisición va a la partida 21401 → Cómputo Demo
 
 
 def caso(cid: str, criterio: str, descripcion: str):
@@ -72,12 +74,9 @@ def estatus(cur, oc_id) -> str:
     return cur.fetchone()[0]
 
 
-def nueva_oc(cur, lineas=None, rfc=RFC_PROV) -> tuple[int, str]:
-    """Registra una compra aprobada (robot R1) y regresa (id, folio)."""
-    adq = u(cur, "adquisiciones")
-    cur.execute("SELECT id FROM proveedores WHERE rfc = ?", rfc)
-    folio = compras.registrar_compra(cur, adq, cur.fetchone()[0], "Departamento de Sistemas",
-                                     lineas or [("Mouse óptico USB", "Pieza", 4, 150)])
+def nueva_oc(cur, lineas=None) -> tuple[int, str]:
+    """Llega una requisición validada (evento simulado R0) y R1 genera su OC. Regresa (id, folio)."""
+    _, folio = simulador.generar_requisicion(cur, AREA, lineas or [("Mouse óptico USB", "Pieza", 4, 150)])
     cur.execute("SELECT id FROM ordenes_compra WHERE folio = ?", folio)
     return cur.fetchone()[0], folio
 
@@ -96,34 +95,58 @@ def atrasar_oc(cur, oc_id, **delta):
 # ======================================================================= inicio
 @caso("CP-01", "CA-15", "Inicio de sesión: correcto, contraseña errónea y bloqueo tras 5 intentos")
 def cp01(cur, ctx):
-    assert u(cur, "adquisiciones")["rol"] == "ADQUISICIONES"
+    assert u(cur, "almacen")["rol"] == "ALMACEN"
+    cur.execute("SELECT COUNT(*) FROM usuarios WHERE rol = 'ADQUISICIONES'")
+    assert cur.fetchone()[0] == 0, "Adquisiciones ya no debe tener usuario en Logix"
     for _ in range(5):
         debe_fallar(lambda: usuarios.iniciar_sesion(cur, "finanzas", "mala"), "incorrectos")
     debe_fallar(lambda: usuarios.iniciar_sesion(cur, "finanzas", generar_datos.PASSWORD_DEMO), "bloqueado")
     cur.execute("UPDATE usuarios SET intentos_fallidos = 0 WHERE usuario = 'finanzas'")
 
 
-@caso("CP-02", "CA-03", "Registrar compra sin renglones, con cantidad 0 o sin área se bloquea con explicación")
+@caso("CP-02", "CA-03", "R1 revisa los datos del evento: sin renglones, cantidad 0 o sin área no genera OC")
 def cp02(cur, ctx):
-    adq = u(cur, "adquisiciones")
     cur.execute("SELECT id FROM proveedores WHERE rfc = ?", RFC_PROV)
     prov = cur.fetchone()[0]
-    debe_fallar(lambda: compras.registrar_compra(cur, adq, prov, "Sistemas", []), "al menos un renglón")
-    debe_fallar(lambda: compras.registrar_compra(cur, adq, prov, "Sistemas", [("Mouse", "Pieza", 0, 150)]),
-                "mayores a cero")
-    debe_fallar(lambda: compras.registrar_compra(cur, adq, prov, "", [("Mouse", "Pieza", 1, 150)]), "área")
+    debe_fallar(lambda: compras.generar_oc(cur, prov, "Sistemas", []), "al menos un renglón")
+    debe_fallar(lambda: compras.generar_oc(cur, prov, "Sistemas", [("Mouse", "Pieza", 0, 150)]), "mayores a cero")
+    debe_fallar(lambda: compras.generar_oc(cur, prov, "", [("Mouse", "Pieza", 1, 150)]), "área")
 
 
-@caso("CP-03", "CA-03", "R1: la compra aprobada genera la OC en PDF con QR y se manda al proveedor")
+@caso("CP-03", "CA-03", "R0+R1: requisición validada (001-03, partida, 4 firmas) → OC PDF con QR al proveedor fijo")
 def cp03(cur, ctx):
-    oc_id, folio = nueva_oc(cur, [("Mouse óptico USB", "Pieza", 10, 150), ("Cable HDMI 2 m", "Pieza", 5, 180)])
-    cur.execute("SELECT estatus, ruta_pdf, total FROM ordenes_compra WHERE id = ?", oc_id)
-    est, ruta, total = cur.fetchone()
+    oc_id, folio = nueva_oc(cur, [("Mouse óptico USB", "Pieza", 10, 150), ("Memoria USB 32 GB", "Pieza", 5, 180)])
+    cur.execute("""SELECT oc.estatus, oc.ruta_pdf, oc.total, oc.registrada_por, p.rfc, r.folio, r.partida, r.firmas
+                   FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
+                   JOIN requisiciones r ON r.id = oc.requisicion_id WHERE oc.id = ?""", oc_id)
+    est, ruta, total, registro, rfc, req, partida, firmas = cur.fetchone()
     assert est == "ESPERANDO_MATERIAL", est
     assert Path(ruta).exists(), "no se generó el PDF de la OC"
     assert total == 2400, total
+    assert registro is None, "nadie debe capturar la OC (la genera el robot)"
+    assert req.startswith("REQ-") and partida == "21401" and rfc == RFC_PROV, (req, partida, rfc)
+    assert all(x in firmas for x in ("Jefe(a)", "Planeación y Presupuestos", "Subdirección", "Dirección")), firmas
     assert avisos_con(cur, f"Orden de compra {folio}") >= 1, "no se avisó al proveedor"
     ctx["oc_plazos"] = (oc_id, folio)
+
+
+@caso("CP-03b", "CA-03", "R0: llega una requisición sola cada N minutos; cada partida va a su proveedor fijo")
+def cp03b(cur, ctx):
+    cur.execute("SELECT MAX(fecha) FROM requisiciones")
+    ultima = cur.fetchone()[0]
+    assert simulador.tal_vez_generar(cur, ultima) == 0, "no debe llegar antes del intervalo"
+    cur.execute("SELECT COUNT(*) FROM requisiciones")
+    antes = cur.fetchone()[0]
+    intervalo = int(db.parametro(cur, "MINUTOS_ENTRE_REQUISICIONES"))      # 60 min
+    assert simulador.tal_vez_generar(cur, ultima + timedelta(minutes=intervalo - 1)) == 0
+    assert simulador.tal_vez_generar(cur, ultima + timedelta(minutes=intervalo + 1)) == 1
+    cur.execute("SELECT COUNT(*) FROM requisiciones")
+    assert cur.fetchone()[0] == antes + 1
+    for area, (_, partida, _, _) in simulador.DEPARTAMENTOS.items():   # Recursos Humanos, limpieza, etc.
+        _, f = simulador.generar_requisicion(cur, area)
+        cur.execute("SELECT p.rfc FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id "
+                    "WHERE oc.folio = ?", f)
+        assert cur.fetchone()[0] == simulador.PROVEEDOR_DE_PARTIDA[partida], (area, partida)
 
 
 # ======================================================================= material
@@ -146,7 +169,7 @@ def cp05(cur, ctx):
     assert estatus(cur, oc_id) == "ESPERANDO_MATERIAL", "todavía no debe cancelarse"
 
 
-@caso("CP-06", "CA-14", "R3: al día 7 sin material la compra se cancela sola; avisa a proveedor y Adquisiciones")
+@caso("CP-06", "CA-14", "R3: al día 7 sin material la compra se cancela sola y se avisa al proveedor")
 def cp06(cur, ctx):
     oc_id, folio = ctx["oc_plazos"]
     atrasar_oc(cur, oc_id, days=7, minutes=1)
@@ -156,14 +179,14 @@ def cp06(cur, ctx):
     cur.execute("SELECT COUNT(*) FROM notificaciones WHERE asunto = ? AND mensaje LIKE '%ya no lo envíe%'",
                 f"Compra cancelada · {folio}")
     assert cur.fetchone()[0] >= 1, "faltó el aviso al proveedor"
-    cur.execute("SELECT COUNT(*) FROM notificaciones WHERE asunto = ? AND mensaje LIKE 'Logix canceló%'",
-                f"Compra cancelada · {folio}")
-    assert cur.fetchone()[0] >= 1, "faltó el aviso a Adquisiciones"
 
 
-@caso("CP-07", "CA-05", "Jefe de Almacén: «Devolución» exige razón, cancela y avisa a Adquisiciones y proveedor")
+@caso("CP-07", "CA-05", "Jefe de Almacén ve qué se aceptó; «Devolución» exige razón, cancela y avisa al proveedor")
 def cp07(cur, ctx):
     oc_id, folio = nueva_oc(cur)
+    d = recepcion.detalle_para_revisar(cur, oc_id)
+    assert d["requisicion"].startswith("REQ-") and d["partida"] == "21401"
+    assert [(l["descripcion"], l["unidad"], l["cantidad"]) for l in d["lineas"]] == [("Mouse óptico USB", "Pieza", 4)]
     alm = u(cur, "almacen")
     debe_fallar(lambda: recepcion.devolucion(cur, alm, oc_id, ""), "razón")
     recepcion.devolucion(cur, alm, oc_id, "Llegaron 2 mouse rotos y faltan 2")
@@ -172,7 +195,7 @@ def cp07(cur, ctx):
     assert (est, tipo) == ("CANCELADA", "DEVOLUCION_ALMACEN") and "rotos" in motivo
     cur.execute("SELECT COUNT(*) FROM notificaciones WHERE asunto = ? AND mensaje LIKE '%rotos%'",
                 f"Compra cancelada · {folio}")
-    assert cur.fetchone()[0] >= 2, "la razón no les llegó a Adquisiciones y al proveedor"
+    assert cur.fetchone()[0] >= 1, "la razón no le llegó al proveedor"
     debe_fallar(lambda: recepcion.confirmar_recepcion(cur, alm, oc_id), "no está esperando material")
 
 
@@ -182,7 +205,7 @@ def cp08(cur, ctx):
     ent, sal = recepcion.confirmar_recepcion(cur, u(cur, "almacen"), oc_id)
     assert ent.startswith("ENT-") and sal.startswith("SAL-")
     assert estatus(cur, oc_id) == "MATERIAL_RECIBIDO"
-    assert avisos_con(cur, f"Envíe su factura · {folio}") >= 1, "no se le pidió la factura"
+    assert avisos_con(cur, f"Material recibido · envíe su factura · {folio}") >= 1, "no se le pidió la factura"
     ctx["oc_sin_factura"] = (oc_id, folio)
 
 
@@ -232,9 +255,37 @@ def cp11(cur, ctx):
     ref, intentos = cur.fetchone()
     assert ref.startswith("SPEI-") and intentos == 1
     assert banco_emulado.estado(cur)["saldo"] == saldo_antes - 600, "el banco no descontó el pago"
-    for asunto in (f"Nuevo expediente para pago · {folio}", f"Pago confirmado · {folio}", f"Compra pagada · {folio}"):
-        assert avisos_con(cur, asunto) >= 1, f"falta el aviso «{asunto}»"
+    for asunto in (f"Factura recibida y validada · {folio}", f"Ticket de pago PAG-{folio[3:]}",
+                   f"Pago confirmado · {folio}"):
+        assert avisos_con(cur, asunto) >= 1, f"falta el aviso «{asunto}» al proveedor"
+    cur.execute("SELECT COUNT(*) FROM notificaciones WHERE destinatario = 'finanzas@logix.demo' AND mensaje LIKE ?",
+                f"%{folio}%")
+    assert cur.fetchone()[0] == 0, "si todo sale bien, Finanzas no debe recibir nada"
+    assert not any(f["id"] == oc_id for f in pagos.fallas(cur)), "un pago confirmado no es una falla"
     ctx["oc_pagada"] = (oc_id, folio)
+
+
+@caso("CP-11b", "CA-07", "El pago sale al banco 5–10 min después del expediente (como un banco real)")
+def cp11b(cur, ctx):
+    cur.execute("UPDATE parametros SET valor = CASE clave WHEN 'MINUTOS_PAGO_MIN' THEN '5' ELSE '10' END "
+                "WHERE clave IN ('MINUTOS_PAGO_MIN', 'MINUTOS_PAGO_MAX')")
+    try:
+        oc_id, folio = nueva_oc(cur)
+        recepcion.confirmar_recepcion(cur, u(cur, "almacen"), oc_id)
+        assert factura(cur, oc_id, folio)[0] == "VALIDA"
+        cur.execute("SELECT estatus, programado_para FROM pagos WHERE oc_id = ?", oc_id)
+        est, cuando = cur.fetchone()
+        espera = (cuando - datetime.now()).total_seconds() / 60
+        assert est == "PROGRAMADO" and 4.5 <= espera <= 10.1, (est, espera)
+        assert estatus(cur, oc_id) == "EN_FINANZAS", "todavía no debe estar pagada"
+        cur.execute("SELECT COUNT(*) FROM notificaciones WHERE asunto = ? AND mensaje LIKE '%minutos%'",
+                    f"Ticket de pago PAG-{folio[3:]}")
+        assert cur.fetchone()[0] >= 1, "el ticket debe decir en cuántos minutos sale el pago"
+        assert pagos.pagar_programados(cur) == 0, "no debe pagar antes de la hora"
+        assert pagos.pagar_programados(cur, datetime.now() + timedelta(minutes=11)) == 1
+        assert estatus(cur, oc_id) == "PAGADA"
+    finally:
+        cur.execute("UPDATE parametros SET valor = '0' WHERE clave IN ('MINUTOS_PAGO_MIN', 'MINUTOS_PAGO_MAX')")
 
 
 @caso("CP-12", "CA-08", "La factura puede llegar antes que el material: al confirmar el material se paga solo")
@@ -244,7 +295,8 @@ def cp12(cur, ctx):
     assert res == "VALIDA" and estatus(cur, oc_id) == "ESPERANDO_MATERIAL"
     recepcion.confirmar_recepcion(cur, u(cur, "almacen"), oc_id)
     assert estatus(cur, oc_id) == "PAGADA"
-    assert avisos_con(cur, f"Envíe su factura · {folio}") == 0, "no debe pedir una factura que ya llegó"
+    assert avisos_con(cur, f"Material recibido · envíe su factura · {folio}") == 0, "no debe pedir una factura que ya llegó"
+    assert avisos_con(cur, f"Material recibido · {folio}") >= 1, "no se le confirmó al proveedor que llegó su material"
 
 
 @caso("CP-13", "CA-10", "Banco «error general»: 3 intentos automáticos → error a Finanzas → Finanzas reintenta")
@@ -261,6 +313,7 @@ def cp13(cur, ctx):
     assert tuple(cur.fetchone()) == ("ERROR", 3, "ERROR_GENERAL")
     assert estatus(cur, oc_id) == "PAGO_CON_ERROR"
     assert avisos_con(cur, f"Error del banco · {folio}") >= 1, "Finanzas no fue avisada"
+    assert any(f["id"] == oc_id for f in pagos.fallas(cur)), "la falla no aparece en la bandeja de Finanzas"
     assert avisos_con(cur, "Pago en proceso · PAG-") >= 1, "el proveedor no recibió «pago en proceso»"
     banco_emulado.simular_falla(cur, "NINGUNA")
     assert pagos.reintentar(cur, u(cur, "finanzas"), oc_id) == "CONFIRMADO"
@@ -281,7 +334,7 @@ def cp14(cur, ctx):
     pagos.cancelar_pago(cur, fin, oc_id, "Sin presupuesto disponible en la partida")
     cur.execute("SELECT estatus, tipo_cancelacion, material_por_devolver FROM ordenes_compra WHERE id = ?", oc_id)
     assert tuple(cur.fetchone()) == ("CANCELADA", "PAGO_CANCELADO", True)
-    assert avisos_con(cur, f"Compra cancelada · {folio}") >= 2, "faltó avisar al proveedor o a Adquisiciones"
+    assert avisos_con(cur, f"Compra cancelada · {folio}") >= 1, "faltó avisar al proveedor"
     banco_emulado.depositar(cur, Decimal("250000"))
 
 
@@ -370,11 +423,16 @@ def cp22(cur, ctx):
 
 
 def main():
+    from logix import config
+    config.MODO_SIMULADO = True     # las pruebas nunca envían correos ni Telegram reales, diga lo que diga .env
     print("Reiniciando la base con datos simulados ...")
     generar_datos.main()
+    # En las pruebas el pago sale al instante (en la demo tarda 5–10 min); CP-11b prueba la espera.
+    with db.conexion() as con:
+        con.cursor().execute("UPDATE parametros SET valor = '0' WHERE clave IN ('MINUTOS_PAGO_MIN', 'MINUTOS_PAGO_MAX')")
     print()
     ctx = {}
-    for c in (cp01, cp02, cp03, cp04, cp05, cp06, cp07, cp08, cp09, cp10, cp11, cp12, cp13, cp14, cp15, cp16,
+    for c in (cp01, cp02, cp03, cp03b, cp04, cp05, cp06, cp07, cp08, cp09, cp10, cp11, cp11b, cp12, cp13, cp14, cp15, cp16,
               cp17, cp18, cp19, cp20):
         c(ctx)
     r6 = notificador.enviar_pendientes()

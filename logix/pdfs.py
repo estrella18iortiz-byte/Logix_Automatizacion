@@ -96,10 +96,11 @@ def _qr(texto: str, ruta: Path) -> Path:
 
 def pdf_orden_compra(cur, oc_id: int) -> Path:
     from .compras import lineas_oc
-    cur.execute("""SELECT oc.folio, oc.total, oc.fecha, oc.area_solicitante, p.razon_social, p.rfc, u.nombre
+    cur.execute("""SELECT oc.folio, oc.total, oc.fecha, oc.area_solicitante, p.razon_social, p.rfc,
+                          r.folio, r.partida, r.partida_nombre
                    FROM ordenes_compra oc JOIN proveedores p ON p.id = oc.proveedor_id
-                   LEFT JOIN usuarios u ON u.id = oc.registrada_por WHERE oc.id = ?""", oc_id)
-    folio, total, fecha, area, prov, rfc, registro = cur.fetchone()
+                   LEFT JOIN requisiciones r ON r.id = oc.requisicion_id WHERE oc.id = ?""", oc_id)
+    folio, total, fecha, area, prov, rfc, req, partida, partida_nombre = cur.fetchone()
     pdf = DocLogix("ORDEN DE COMPRA DEL BIEN O SERVICIO", f"Formato TecNM-AD-IT-001-05 · {folio}")
     pdf.add_page()
     carpeta = _carpeta(folio)
@@ -108,7 +109,8 @@ def pdf_orden_compra(cur, oc_id: int) -> Path:
     pdf.dato("Fecha:", f"{fecha:%d/%m/%Y}")
     pdf.dato("Proveedor:", f"{prov} (RFC {rfc})")
     pdf.dato("Área solicitante:", area)
-    pdf.dato("Registró (Adquisiciones):", registro)
+    pdf.dato("Requisición (001-03):", f"{req} · validada con 4 firmas" if req else "—")
+    pdf.dato("Partida presupuestal:", f"{partida} {partida_nombre}" if partida else "—")
     pdf.ln(4)
     filas = [[i, f"{l['cantidad']:g}", l["unidad"], l["descripcion"], f"${l['precio_unitario']:,.2f}",
               f"${l['importe']:,.2f}"] for i, l in enumerate(lineas_oc(cur, oc_id), 1)]
@@ -149,7 +151,7 @@ def pdf_expediente(cur, oc_id: int, memorandum: str) -> Path:
     pdf.set_font(pdf.f, "B", 12)
     pdf.cell(0, 8, f"MEMORÁNDUM {memorandum}", new_x="LMARGIN", new_y="NEXT")
     pdf.dato("Para:", "Departamento de Recursos Financieros")
-    pdf.dato("De:", "Departamento de Recursos Materiales · Adquisiciones (generado por Logix)")
+    pdf.dato("De:", "Departamento de Recursos Materiales y Servicios (generado por Logix)")
     pdf.dato("Fecha:", f"{datetime.now():%d/%m/%Y}")
     pdf.dato("Asunto:", f"Expediente completo y pago automático de la OC {folio}")
     pdf.ln(3)

@@ -6,8 +6,11 @@ material está en almacén. En cuanto Logix tiene las dos cosas (no importa cuá
      MISMO importe + entrada de almacén.
   2. Genera UN solo PDF (memorándum + expediente) con su huella SHA-256
      (prueba de que nadie lo alteró) y lo deja en la bandeja de Finanzas.
-  3. Avisa a Finanzas y a Adquisiciones, y le da al proveedor su ticket PAG-….
-  4. Como no hay problemas, le pide al robot R5 que haga el pago en el banco emulado.
+  3. Le da al proveedor su ticket PAG-…. (A Finanzas NO se le avisa: si todo está bien
+     el pago sale solo; solo se le avisa cuando el banco falla.)
+  4. Como no hay problemas, le pide al robot R5 que haga el pago en el banco emulado. Para que se
+     parezca a un banco real, el pago sale entre MINUTOS_PAGO_MIN y MINUTOS_PAGO_MAX (5–10 min)
+     después; si los dos parámetros valen 0, sale en ese momento (así corren las pruebas).
 """
 import hashlib
 from datetime import date
@@ -62,17 +65,16 @@ def armar_y_enviar(cur, oc_id: int):
     db.bitacora(cur, ACTOR, "OC", oc_id, "ENVIA_A_FINANZAS", estatus, "EN_FINANZAS",
                 f"{memorandum} SHA-256 {huella[:16]}…")
 
-    # 3. Avisos: Finanzas (lo que llegó), Adquisiciones (ya salió) y proveedor (su ticket).
-    avisos.a_rol(cur, "FINANZAS", f"Nuevo expediente para pago · {folio}",
-                 f"Llegó el expediente de la OC {folio} por ${total:,.2f} (memorándum {memorandum}) con la "
-                 "factura validada y la confirmación del Jefe de Almacén. Logix ya mandó el pago al banco; "
-                 "solo tendrá que intervenir si el banco responde con un error.")
-    avisos.a_rol(cur, "ADQUISICIONES", f"Expediente enviado a Finanzas · {folio}",
-                 f"El expediente de la OC {folio} llegó a Recursos Financieros (memorándum {memorandum}).")
-    ticket = f"PAG-{folio[3:]}"
-    avisos.a_proveedor(cur, proveedor_id, f"Ticket de pago {ticket}",
-                       f"Su factura y su material de la OC {folio} por ${total:,.2f} están completos y el pago "
-                       f"está en proceso. Ticket: {ticket}. Le avisaremos en cuanto el banco lo confirme.")
+    # 3. El robot R5 programa el pago (sale al banco en 5–10 minutos, como un banco real).
+    minutos = pagos.programar(cur, oc_id)
 
-    # 4. No hay problemas: el robot R5 manda el pago al banco emulado.
-    pagos.pagar(cur, oc_id)
+    # 4. Aviso al proveedor con su ticket.
+    ticket = f"PAG-{folio[3:]}"
+    cuando = (f"El pago sale al banco en unos {minutos} minutos." if minutos
+              else "El pago ya se mandó al banco.")
+    avisos.a_proveedor(cur, proveedor_id, f"Ticket de pago {ticket}",
+                       f"🧾 Su factura y su material de la orden {folio} por ${total:,.2f} están completos y pasan al "
+                       f"banco.\nTicket: {ticket}\n{cuando} Le avisaremos en cuanto el banco lo confirme.\n\n"
+                       f"Para ver cómo va su pago, escriba «{ticket}» o «{folio}» en este chat.")
+    if not minutos:
+        pagos.pagar(cur, oc_id)

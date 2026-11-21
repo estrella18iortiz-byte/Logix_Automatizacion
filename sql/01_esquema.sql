@@ -39,7 +39,8 @@ CREATE TABLE areas (
     nombre  VARCHAR(120) NOT NULL UNIQUE
 );
 
-/* rol: ADQUISICIONES, ALMACEN (Jefe de Almacén), FINANZAS, ADMIN */
+/* rol: ALMACEN (Jefe de Almacén), FINANZAS, ADMIN
+   (Adquisiciones ya no usa Logix: las requisiciones validadas llegan como eventos simulados) */
 CREATE TABLE usuarios (
     id             INT IDENTITY PRIMARY KEY,
     nombre         VARCHAR(120) NOT NULL,
@@ -69,9 +70,25 @@ CREATE TABLE proveedores (
     activo              BIT NOT NULL DEFAULT 1
 );
 
-/* ---------- 4. Orden de compra (petición ya aceptada y validada) ------------
-   Adquisiciones la registra cuando la compra YA fue autorizada.
-   Desde aquí empieza la automatización.
+/* ---------- 4. Requisición validada (evento simulado, formato 001-03) --------
+   Un departamento del Tec pide material (Recursos Humanos: hojas y bolígrafos;
+   Servicios Generales: jabón y detergente...). La requisición YA viene validada con
+   sus 4 firmas (Jefe del área, Planeación y Presupuestos, Subdirección y Dirección)
+   y con la partida presupuestal del Clasificador por Objeto del Gasto.
+   Logix no la captura: la recibe como evento (simulador.py) y de ahí arma la OC. */
+CREATE TABLE requisiciones (
+    id               INT IDENTITY PRIMARY KEY,
+    folio            VARCHAR(20)  NOT NULL UNIQUE,     -- REQ-2026-0001
+    area_solicitante VARCHAR(120) NOT NULL,
+    partida          CHAR(5)      NOT NULL,            -- 21101, 21601...
+    partida_nombre   VARCHAR(120) NOT NULL,
+    justificacion    VARCHAR(500) NOT NULL,
+    firmas           VARCHAR(500) NOT NULL,            -- quiénes la validaron (4 firmas)
+    fecha            DATETIME2    NOT NULL DEFAULT SYSDATETIME()
+);
+
+/* ---------- 5. Orden de compra (sale sola de la requisición validada) --------
+   El robot R1 la genera en cuanto llega la requisición. Desde aquí corre todo solo.
    estatus:
      ESPERANDO_MATERIAL  OC enviada; el material tiene 7 días para llegar
      MATERIAL_RECIBIDO   el Jefe de Almacén confirmó; se espera la factura (48 h)
@@ -83,11 +100,12 @@ CREATE TABLE ordenes_compra (
     id            INT IDENTITY PRIMARY KEY,
     folio         VARCHAR(20)   NOT NULL UNIQUE,     -- OC-2026-0001
     proveedor_id  INT NOT NULL REFERENCES proveedores(id),
+    requisicion_id INT NULL REFERENCES requisiciones(id),   -- de qué requisición validada salió
     area_solicitante VARCHAR(120) NOT NULL,          -- área que pidió el material
     total         DECIMAL(12,2) NOT NULL,            -- con IVA
     estatus       VARCHAR(20)   NOT NULL DEFAULT 'ESPERANDO_MATERIAL',
     fecha         DATETIME2     NOT NULL DEFAULT SYSDATETIME(),   -- envío de la OC: inicia los 7 días
-    registrada_por INT NULL REFERENCES usuarios(id),
+    registrada_por INT NULL REFERENCES usuarios(id),  -- NULL: la generó el robot R1
     ruta_pdf      VARCHAR(300)  NULL,
     -- Cancelación (si ocurre): por qué, cuándo y si hay material que regresar al proveedor.
     tipo_cancelacion   VARCHAR(30)   NULL,   -- DEVOLUCION_ALMACEN, MATERIAL_NO_LLEGO, FACTURA_INVALIDA,
@@ -152,7 +170,7 @@ CREATE TABLE expedientes (
 
 /* ---------- 8. Pago automático (robot R5) ------------------------------------
    Una fila por OC que llegó a Finanzas. Guarda la última respuesta del banco emulado.
-   estatus: EN_PROCESO, REINTENTO (error general: se reintenta solo), ERROR (lo decide
+   estatus: PROGRAMADO (sale al banco en 5–10 min), EN_PROCESO, REINTENTO (error general: se reintenta solo), ERROR (lo decide
             Finanzas), CONFIRMADO (el banco pagó), CANCELADO (Finanzas canceló). */
 CREATE TABLE pagos (
     id                INT IDENTITY PRIMARY KEY,
@@ -162,6 +180,7 @@ CREATE TABLE pagos (
     moneda            CHAR(3)       NOT NULL DEFAULT 'MXN',
     estatus           VARCHAR(12)   NOT NULL DEFAULT 'EN_PROCESO',
     intentos          TINYINT       NOT NULL DEFAULT 0,
+    programado_para   DATETIME2     NULL,     -- PROGRAMADO: el robot lo manda al banco a esta hora (5–10 min)
     codigo_error      VARCHAR(30)   NULL,     -- ERROR_GENERAL, SALDO_INSUFICIENTE, MONTO_INCORRECTO,
                                               -- DIVISA_INCORRECTA, CUENTA_INVALIDA
     detalle_error     VARCHAR(500)  NULL,
@@ -198,6 +217,7 @@ CREATE TABLE notificaciones (
     destinatario  VARCHAR(120)  NOT NULL,
     asunto        NVARCHAR(200)  NULL,
     mensaje       NVARCHAR(2000) NOT NULL,
+    adjunto       VARCHAR(300)  NULL,               -- PDF que se manda junto con el aviso (ej. la OC)
     estatus       VARCHAR(10)   NOT NULL DEFAULT 'PENDIENTE', -- PENDIENTE, ENVIADA, SIMULADA, FALLIDA
     intentos      TINYINT       NOT NULL DEFAULT 0,
     error         VARCHAR(500)  NULL,

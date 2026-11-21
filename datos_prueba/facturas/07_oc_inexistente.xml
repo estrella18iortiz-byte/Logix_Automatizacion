@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="707" Fecha="2026-11-19T22:32:39"
+  Version="4.0" Serie="A" Folio="707" Fecha="2026-11-20T19:27:41"
   SubTotal="672.42" Moneda="MXN" Total="780.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
   <cfdi:Emisor Rfc="CDE020202BB2" Nombre="Cómputo Demo S.A. de C.V." RegimenFiscal="601"/>
@@ -11,6 +11,6 @@
   </cfdi:Conceptos>
   <cfdi:Impuestos TotalImpuestosTrasladados="107.58"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="7EF5604B-E59B-402D-AFC7-C9BCF72DB985" FechaTimbrado="2026-11-19T22:32:39"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="EC3F7871-1E8D-464D-AA26-BC1CA424F45A" FechaTimbrado="2026-11-20T19:27:41"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

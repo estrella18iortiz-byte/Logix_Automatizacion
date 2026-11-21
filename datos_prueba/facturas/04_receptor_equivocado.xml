@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" Serie="A" Folio="404" Fecha="2026-11-19T22:32:39"
+  Version="4.0" Serie="A" Folio="404" Fecha="2026-11-20T19:27:41"
   SubTotal="775.80" Moneda="MXN" Total="900.00" TipoDeComprobante="I" Exportacion="01"
   MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
   <cfdi:Emisor Rfc="ELD040404DD4" Nombre="Eléctrica Demo S.A. de C.V." RegimenFiscal="601"/>
@@ -11,6 +11,6 @@
   </cfdi:Conceptos>
   <cfdi:Impuestos TotalImpuestosTrasladados="124.20"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="CC178778-2FA1-4F12-AC44-DFA711F667EE" FechaTimbrado="2026-11-19T22:32:39"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="56BBFCDF-3C2E-424F-B4D3-61495B816AC9" FechaTimbrado="2026-11-20T19:27:41"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

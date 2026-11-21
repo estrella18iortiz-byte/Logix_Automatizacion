@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Serie="A" Folio="9001" Fecha="2026-11-20T18:42:10"
+  SubTotal="258.62" Moneda="MXN" Total="300.00" TipoDeComprobante="I" Exportacion="01"
+  MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
+  <cfdi:Emisor Rfc="CDE020202BB2" Nombre="Cómputo Demo S.A. de C.V." RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="ITM990101AB1" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"
+    RegimenFiscalReceptor="603" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="2.00" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Mouse óptico USB" ValorUnitario="129.31" Importe="258.62" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="41.38"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="0628E806-34A5-41BE-BF72-7D5AB5E7E315" FechaTimbrado="2026-11-20T18:42:10"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

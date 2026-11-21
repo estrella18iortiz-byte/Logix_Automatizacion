@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Serie="A" Folio="9012" Fecha="2026-11-20T19:15:59"
+  SubTotal="1698.28" Moneda="MXN" Total="2220.00" TipoDeComprobante="I" Exportacion="01"
+  MetodoPago="PPD" FormaPago="99" LugarExpedicion="78700">
+  <cfdi:Emisor Rfc="CDE020202BB2" Nombre="Cómputo Demo S.A. de C.V." RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="ITM990101AB1" Nombre="INSTITUCION SIMULADA" DomicilioFiscalReceptor="78700"
+    RegimenFiscalReceptor="603" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="2.00" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Teclado USB" ValorUnitario="224.14" Importe="448.28" ObjetoImp="02"/>
+    <cfdi:Concepto ClaveProdServ="01010101" Cantidad="1.00" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Tóner para impresora láser" ValorUnitario="1250.00" Importe="1250.00" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="521.72"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="9B2D5FD8-D1C7-4F56-9328-6AA22921E18A" FechaTimbrado="2026-11-20T19:15:59"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
