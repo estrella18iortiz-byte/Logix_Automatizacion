@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logix 3.1 · Demo web</title>
+<!--
+  Demo web del prototipo Logix 3.1 (reto «Automatiza tu Tec», TecNM Campus Matehuala).
+  Reproduce en el navegador el panel de escritorio (panel.py) y los robots (robot.py) con DATOS SIMULADOS.
+  No usa SQL Server ni Telegram reales: todo vive en la memoria de la página y se reinicia al recargar.
+  Los tiempos se aceleran: el pago, que en Logix sale 5–10 minutos después del expediente, aquí sale en ~8 segundos.
+-->
+<style>
+:root{--marino:#0B2545;--cian:#00A8E8;--acento:#8DA9C4;--fondo:#EEF4F8;--blanco:#fff;--texto:#13263D;--gris:#5B6B7F;
+--verde:#2E9E4F;--rojo:#D23C3C;--amarillo:#C98A00;--linea:#D5E1EA}
+*{box-sizing:border-box}
+body{margin:0;font-family:Calibri,"Segoe UI",Roboto,Arial,sans-serif;background:var(--fondo);color:var(--texto);font-size:15px}
+h1,h2,h3{font-family:"Century Gothic","Trebuchet MS",sans-serif;color:var(--marino);margin:.2em 0 .3em}
+h1{font-size:26px}h2{font-size:19px;margin-top:22px}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:var(--cian);color:#fff;font-weight:600}
+button:hover{filter:brightness(.93)}button:disabled{background:var(--acento);cursor:not-allowed}
+button.rojo{background:var(--rojo)}button.verde{background:var(--verde)}button.sec{background:#fff;color:var(--marino);border:1px solid var(--acento)}
+input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--acento);border-radius:8px;background:#fff;color:var(--texto)}
+.banda{background:var(--marino);color:#fff;padding:6px 16px;font-size:13px;text-align:center}
+.banda b{color:var(--cian)}
+/* Inicio de sesión */
+#login{min-height:calc(100vh - 30px);display:flex;align-items:center;justify-content:center;padding:16px}
+.tarjeta-login{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(11,37,69,.12);text-align:center}
+.tarjeta-login img{width:110px}.tarjeta-login input{width:100%;margin:6px 0}.tarjeta-login button{width:100%;margin-top:8px}
+.usuarios{margin-top:16px;text-align:left;font-size:13px;color:var(--gris);background:var(--fondo);border-radius:10px;padding:10px 12px}
+.usuarios code{background:#fff;padding:1px 6px;border-radius:5px;cursor:pointer;color:var(--marino);font-weight:700}
+/* App */
+#app{display:none;min-height:calc(100vh - 30px)}
+.lado{background:var(--marino);color:#fff;width:230px;flex:none;padding:18px 12px;display:flex;flex-direction:column}
+.lado .logo{text-align:center}.lado .logo img{width:84px;background:#fff;border-radius:8px;padding:4px}
+.lado .logo div{font-family:"Century Gothic",sans-serif;font-size:22px;font-weight:700;letter-spacing:1px}
+.lado .quien{font-size:12px;color:var(--acento);text-align:center;margin:6px 0 14px}
+.lado nav button{display:block;width:100%;text-align:left;background:transparent;color:#fff;font-weight:400;margin:2px 0}
+.lado nav button.activo{background:var(--cian);font-weight:600}
+.lado .pie{margin-top:auto;text-align:center;font-size:11px;color:var(--cian);font-weight:700}
+.lado .pie button{margin-top:8px;width:100%}
+.principal{flex:1;padding:22px 26px;min-width:0}
+.desc{color:var(--gris);margin:0 0 14px;max-width:900px}
+.caja{background:#fff;border-radius:12px;padding:14px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(11,37,69,.06)}
+.tabla-env{overflow-x:auto;background:#fff;border-radius:10px;border:1px solid var(--linea)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{background:var(--marino);color:#fff;font-weight:600;padding:8px;text-align:left;white-space:nowrap}
+td{padding:7px 8px;border-top:1px solid var(--linea);vertical-align:top}
+td:first-child,td:nth-child(2){white-space:nowrap}
+tr.sel td{background:#D8F1FC}tbody tr{cursor:pointer}tbody tr:hover td{background:#F2F8FC}
+.vacio{padding:16px;color:var(--gris);text-align:center}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:700;color:#fff;background:var(--gris);white-space:nowrap}
+.p-ESPERANDO_MATERIAL{background:var(--amarillo)}.p-MATERIAL_RECIBIDO{background:#4C7DB8}.p-FACTURA_VALIDA{background:#4C7DB8}
+.p-EN_PAGO{background:#7A5CC2}.p-PAGADA{background:var(--verde)}.p-CANCELADA{background:var(--rojo)}.p-FALLA_PAGO{background:var(--rojo)}
+.sem-Rojo{color:var(--rojo)}.sem-Amarillo{color:var(--amarillo)}.sem-Verde{color:var(--verde)}
+.acciones{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi{background:#fff;border-radius:12px;padding:14px;border-left:5px solid var(--cian)}
+.kpi b{display:block;font-size:28px;color:var(--marino);font-family:"Century Gothic",sans-serif}.kpi span{color:var(--gris);font-size:13px}
+.falla{border-left:5px solid var(--rojo)}
+.fila{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.linea-tiempo{list-style:none;padding:0;margin:0}.linea-tiempo li{padding:6px 0 6px 18px;border-left:3px solid var(--cian);margin-left:6px;position:relative}
+.linea-tiempo li:before{content:"";position:absolute;left:-8px;top:11px;width:13px;height:13px;border-radius:50%;background:var(--cian)}
+.linea-tiempo small{color:var(--gris)}
+/* Telegram */
+.tg{width:340px;flex:none;background:#DCE8F0;border-left:1px solid var(--linea);display:flex;flex-direction:column;max-height:calc(100vh - 30px);position:sticky;top:0}
+.tg-cab{background:#2AABEE;color:#fff;padding:10px 12px}.tg-cab b{display:block}.tg-cab small{opacity:.9}
+.tg-cab select{width:100%;margin-top:6px;padding:4px 6px;font-size:13px}
+.tg-msgs{flex:1;overflow-y:auto;padding:10px}
+.burbuja{background:#fff;border-radius:12px 12px 12px 4px;padding:8px 10px;margin:6px 0;font-size:13px;white-space:pre-wrap;max-width:92%;box-shadow:0 1px 1px rgba(0,0,0,.08)}
+.burbuja.yo{background:#E1FEC6;margin-left:auto;border-radius:12px 12px 4px 12px}
+.burbuja .h{color:var(--gris);font-size:11px;text-align:right;margin-top:3px}
+.adj{display:flex;gap:8px;align-items:center;background:#EAF4FB;border-radius:8px;padding:6px 8px;margin-top:6px;font-weight:600;color:var(--marino)}
+.tg-pie{padding:8px;background:#fff;border-top:1px solid var(--linea)}
+.tg-pie .fila{gap:6px}.tg-pie input{flex:1;min-width:0;padding:6px 8px}.tg-pie button{padding:6px 10px;font-size:13px}
+.tg-pie .bot{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.tg-nota{font-size:11px;color:var(--gris);margin-top:4px}
+/* Modal y aviso */
+.modal{position:fixed;inset:0;background:rgba(11,37,69,.45);display:none;align-items:center;justify-content:center;padding:16px;z-index:9}
+.modal .caja{max-width:460px;width:100%}.modal textarea{width:100%;min-height:80px}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--marino);color:#fff;padding:10px 18px;border-radius:10px;display:none;z-index:10;max-width:90vw}
+.tg-boton-movil{display:none}
+@media (max-width:1100px){.tg{position:fixed;right:0;top:0;bottom:0;max-height:none;z-index:8;transform:translateX(100%);transition:.2s}.tg.abierto{transform:none}
+.tg-boton-movil{display:block;position:fixed;right:14px;bottom:14px;z-index:8;border-radius:30px;background:#2AABEE}}
+@media (max-width:760px){#app{flex-direction:column}.lado{width:auto}.lado nav{display:flex;flex-wrap:wrap;gap:4px}.lado nav button{width:auto}
+.principal{padding:16px}.tg{width:100%}}
+</style>
+</head>
+<body>
+<div class="banda">Demo web de <b>Logix 3.1</b> · <b>datos simulados</b> · el pago sale en segundos (en Logix real tarda 5–10 min) · al recargar la página todo vuelve al inicio</div>
+
+<section id="login">
+  <div class="tarjeta-login">
+    <img src="isotipo_logix.png" alt="Logix">
+    <h1>LOGIX</h1>
+    <p class="desc" style="margin:0 0 10px">Compras repetitivas con proveedores fijos</p>
+    <input id="u" placeholder="Usuario" autocomplete="off">
+    <input id="pw" type="password" placeholder="Contraseña">
+    <button onclick="entrar()">Iniciar sesión</button>
+    <div id="errLogin" style="color:var(--rojo);margin-top:8px"></div>
+    <div class="usuarios">Usuarios de prueba (contraseña <code onclick="pw.value='logix2026'">logix2026</code>):<br>
+      <code onclick="llenar('admin')">admin</code> todo el sistema ·
+      <code onclick="llenar('almacen')">almacen</code> Jefe de Almacén ·
+      <code onclick="llenar('finanzas')">finanzas</code> Recursos Financieros</div>
+  </div>
+</section>
+
+<section id="app">
+  <aside class="lado">
+    <div class="logo"><img src="isotipo_logix.png" alt=""><div>LOGIX</div></div>
+    <div class="quien" id="quien"></div>
+    <nav id="menu"></nav>
+    <div class="pie">DATOS SIMULADOS<button class="sec" onclick="salir()">Cerrar sesión</button></div>
+  </aside>
+  <main class="principal" id="vista"></main>
+  <aside class="tg" id="tg">
+    <div class="tg-cab"><b>📱 Telegram del proveedor · @Asist_tec_bot</b><small>Así le llegan los mensajes al proveedor</small>
+      <select id="tgProv" onchange="pintarTG()"></select></div>
+    <div class="tg-msgs" id="tgMsgs"></div>
+    <div class="tg-pie">
+      <div class="fila"><input id="tgTxt" placeholder="Escribe un folio: OC-2026-0002 o PAG-…" onkeydown="if(event.key==='Enter')tgEscribir()"><button onclick="tgEscribir()">Enviar</button></div>
+      <div class="bot"><button class="verde" onclick="tgFactura(false)">📎 Factura XML correcta</button><button class="rojo" onclick="tgFactura(true)">📎 Factura importe mal</button></div>
+      <div class="tg-nota">La factura se manda con el folio de la orden en el pie (escríbelo arriba o se usa la orden pendiente más antigua).</div>
+    </div>
+  </aside>
+</section>
+<button class="tg-boton-movil" onclick="tg.classList.toggle('abierto')">📱 Telegram</button>
+
+<div class="modal" id="modal"><div class="caja"><h3 id="mTit"></h3><p class="desc" id="mDesc"></p><textarea id="mTxt"></textarea>
+  <div class="acciones"><button class="sec" onclick="cerrarModal()">Cancelar</button><button id="mOk">Aceptar</button></div></div></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ===================== Datos simulados (los mismos de generar_datos.py y simulador.py) ===================== */
+const PARTIDAS={"21101":"Materiales y útiles de oficina","21401":"Materiales y útiles para tecnologías de la información",
+  "21601":"Material de limpieza","24601":"Material eléctrico y electrónico"};
+const PROVEEDORES=[
+  {rfc:"PDA010101AA1",nombre:"Papelería Demo del Altiplano S.A. de C.V.",clabe:"012700001234567890",partida:"21101"},
+  {rfc:"CDE020202BB2",nombre:"Cómputo Demo S.A. de C.V.",clabe:"014700009876543210",partida:"21401"},
+  {rfc:"ELD040404DD4",nombre:"Eléctrica Demo S.A. de C.V.",clabe:"021700001112223330",partida:"24601"},
+  {rfc:"LDA050505EE5",nombre:"Limpieza Demo del Altiplano S.A. de C.V.",clabe:"032700004445556660",partida:"21601"}];
+const ACA="Subdirección Académica", ADM="Subdirección de Servicios Administrativos";
+const DEPTOS={
+  "Departamento de Recursos Humanos":[ADM,"21101","Papelería para la integración de expedientes del personal y trámites del periodo.",
+    [["Hojas blancas tamaño carta (paquete 500)","Paquete",120,5,20],["Bolígrafos tinta azul (caja con 12)","Caja",65,2,10],["Folders tamaño carta (paquete 100)","Paquete",210,1,4],["Clips estándar (caja con 100)","Caja",25,2,10]]],
+  "Servicios Generales (limpieza)":[ADM,"21601","Reposición de insumos de limpieza para sanitarios, aulas y oficinas del campus.",
+    [["Jabón líquido para manos (garrafa 4 L)","Garrafa",140,2,8],["Detergente en polvo (bolsa 1 kg)","Bolsa",48,5,20],["Cloro (botella 1 L)","Botella",22,10,30],["Papel higiénico jumbo (caja con 6 rollos)","Caja",320,2,6]]],
+  "Departamento de Sistemas y Computación":[ACA,"21401","Reposición de periféricos e insumos para los laboratorios de cómputo.",
+    [["Mouse óptico USB","Pieza",150,2,10],["Teclado USB","Pieza",260,1,6],["Tóner para impresora láser","Pieza",1450,1,2],["Memoria USB 32 GB","Pieza",120,2,8]]],
+  "Departamento de Ciencias Básicas":[ACA,"21101","Material didáctico para las aulas durante el semestre.",
+    [["Plumones para pizarrón blanco (caja con 4)","Caja",95,3,12],["Borrador para pizarrón blanco","Pieza",35,3,10]]],
+  "Departamento de Mantenimiento de Equipo":[ADM,"24601","Mantenimiento correctivo de la iluminación y conexiones de edificios.",
+    [["Foco LED 12 W","Pieza",45,10,40],["Extensión eléctrica 5 m","Pieza",160,2,6],["Contacto doble polarizado","Pieza",55,4,12]]]};
+const INICIALES=[
+  ["Departamento de Recursos Humanos",4,[["Hojas blancas tamaño carta (paquete 500)","Paquete",10,120],["Bolígrafos tinta azul (caja con 12)","Caja",5,65]]],
+  ["Departamento de Sistemas y Computación",2,[["Mouse óptico USB","Pieza",2,150],["Tóner para impresora láser","Pieza",1,1450]]],
+  ["Servicios Generales (limpieza)",1,[["Jabón líquido para manos (garrafa 4 L)","Garrafa",4,140],["Detergente en polvo (bolsa 1 kg)","Bolsa",10,48]]],
+  ["Departamento de Mantenimiento de Equipo",1,[["Foco LED 12 W","Pieza",20,45]]],
+  ["Departamento de Ciencias Básicas",0,[["Plumones para pizarrón blanco (caja con 4)","Caja",6,95]]],
+  ["Departamento de Sistemas y Computación",0,[["Teclado USB","Pieza",3,260]]]];
+const USUARIOS={admin:["ADMIN","Administrador del sistema"],almacen:["ALMACEN","Luis Alberto Demo · Jefe de Almacén"],finanzas:["FINANZAS","María Elena Demo · Recursos Financieros"]};
+const MENUS={ALMACEN:["Recepción","Consultar folio"],FINANZAS:["Fallas de pago","Consultar folio"],
+  ADMIN:["Inicio","Requisiciones","Buzón de facturas","Compras canceladas","Proveedores","Robots y avisos","Banco emulado","Bitácora","Consultar folio"]};
+const FALLAS={NINGUNA:"Sin falla: el banco confirma el pago",ERROR_GENERAL:"El banco no pudo procesar la operación en este momento.",
+  SALDO_INSUFICIENTE:"La cuenta del Tec no tiene saldo suficiente para este pago.",MONTO_INCORRECTO:"El monto no es válido o supera el límite por operación.",
+  DIVISA_INCORRECTA:"El banco solo acepta transferencias en pesos mexicanos (MXN).",CUENTA_INVALIDA:"La CLABE del proveedor no es válida."};
+const DECIDIR={ERROR_GENERAL:"El banco falló 3 veces seguidas. Revisa con el banco y reintenta.",
+  SALDO_INSUFICIENTE:"Pide la transferencia de saldo a la cuenta del Tec y luego reintenta.",
+  MONTO_INCORRECTO:"Confirma el importe del expediente con el límite del banco; reintenta o cancela con motivo.",
+  DIVISA_INCORRECTA:"El pago debe ir en MXN; corrige y reintenta.",CUENTA_INVALIDA:"Pide al proveedor su CLABE correcta; corrígela y reintenta."};
+const CAUSAS={DEVOLUCION:"devolución del Almacén",FACTURA_INVALIDA:"factura inválida",MATERIAL_NO_LLEGO:"el material no llegó en 7 días",PAGO_CANCELADO_FINANZAS:"pago cancelado por Finanzas"};
+const SEG_PAGO=8;   // en Logix real: 5 a 10 minutos
+
+/* ===================== Estado ===================== */
+let S, usuario=null, vistaActual=null, ocSel=null, reqSel=null, reloj=0;
+const dinero=n=>"$"+n.toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2});
+const ahora=()=>new Date(Date.now()+reloj);
+const fmt=d=>d.toLocaleString("es-MX",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+const prov=rfc=>PROVEEDORES.find(p=>p.rfc===rfc);
+const folio=(pre,n)=>`${pre}-2026-${String(n).padStart(4,"0")}`;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function reiniciar(){
+  S={reqs:[],ocs:[],avisos:[],bitacora:[],uuids:new Set(),falla:"NINGUNA",nReq:0,nOc:0,nPag:0};
+  INICIALES.forEach(([area,dias,lineas])=>nuevaRequisicion(area,lineas,new Date(Date.now()-dias*864e5),true));
+}
+function bit(actor,accion,detalle){S.bitacora.unshift({fecha:ahora(),actor,accion,detalle});}
+function avisar(rfc,asunto,texto,adjunto){S.avisos.push({fecha:ahora(),rfc,asunto,texto,adjunto,yo:false});if(usuario)pintarTG(rfc);}
+function oc(f){return S.ocs.find(o=>o.folio===f);}
+
+/* R0 + R1: llega una requisición validada y se genera la orden de compra */
+function nuevaRequisicion(area,lineas,fecha,silencio){
+  const [sub,partida,just,cat]=DEPTOS[area];
+  if(!lineas){const r=[...cat].sort(()=>Math.random()-.5).slice(0,1+Math.floor(Math.random()*Math.min(3,cat.length)));
+    lineas=r.map(([a,u,p,mn,mx])=>[a,u,mn+Math.floor(Math.random()*(mx-mn+1)),p]);}
+  fecha=fecha||ahora();
+  const req={folio:folio("REQ",++S.nReq),area,partida,just,fecha,
+    firmas:`1. Jefe(a) de ${area} · 2. Planeación y Presupuestos (suficiencia presupuestal) · 3. ${sub} · 4. Dirección`};
+  S.reqs.unshift(req);
+  const p=PROVEEDORES.find(x=>x.partida===partida);
+  const o={folio:folio("OC",++S.nOc),req:req.folio,area,rfc:p.rfc,lineas:lineas.map(([d,u,c,pr])=>({d,u,c,pr})),
+    total:lineas.reduce((s,[, ,c,pr])=>s+c*pr,0),fecha,estatus:"ESPERANDO_MATERIAL",material:false,factura:false,
+    historia:[],pago:null,cancel:null,recordado:false,ultimo:false};
+  req.oc=o.folio; S.ocs.push(o);
+  hist(o,"Llega la requisición "+req.folio+" validada (4 firmas)",fecha);
+  hist(o,"R1 genera la orden de compra y la envía al proveedor",fecha);
+  bit("SIMULADOR-R0","LLEGA_REQUISICION_VALIDADA",`${req.folio} · ${area} · partida ${partida}`);
+  bit("ROBOT-R1","GENERA_OC",`${o.folio} ${dinero(o.total)} · ${p.nombre}`);
+  const renglones=o.lineas.map(l=>`  • ${l.c} ${l.u} · ${l.d}`).join("\n");
+  S.avisos.push({fecha,rfc:p.rfc,asunto:"Orden de compra "+o.folio,adjunto:o.folio+".pdf",yo:false,
+    texto:`Le enviamos la orden de compra ${o.folio} por ${dinero(o.total)} (IVA incluido). El PDF oficial va adjunto.\n\nQué se compró:\n${renglones}\n\n1) Entregue el material en nuestro Almacén en un máximo de 7 días; si no llega, la compra se cancela.\n2) Envíe su factura: mande el archivo XML de su CFDI por este chat y escriba «${o.folio}» en el pie del archivo. Logix la valida en automático antes de pagar.\n3) Para saber cómo va su compra y su pago, escriba aquí «${o.folio}» en cualquier momento.`});
+  if(!silencio&&usuario)pintarTG(p.rfc);
+  return o;
+}
+function hist(o,t,f){o.historia.push({fecha:f||ahora(),t});}
+function nombreP(o){return prov(o.rfc).nombre;}
+
+/* R2: validar factura */
+function recibirFactura(o,importeMal,canal){
+  const p=prov(o.rfc);
+  if(!o||o.estatus==="CANCELADA"||o.estatus==="PAGADA"||o.factura){
+    avisar(o.rfc,"Factura no aceptada",`No se aceptó la factura: la orden ${o.folio} ${o.factura?"ya tiene una factura válida":"ya no espera factura ("+o.estatus.replace("_"," ").toLowerCase()+")"}.`);return;}
+  hist(o,`Llega la factura XML por ${canal}`);
+  if(importeMal){
+    const total=o.total+250;
+    bit("ROBOT-R2","FACTURA_RECHAZADA",`${o.folio}: importe ${dinero(total)} ≠ ${dinero(o.total)}`);
+    cancelar(o,"FACTURA_INVALIDA",`La factura no coincide con la orden: importe ${dinero(total)} y la orden es por ${dinero(o.total)}.`,"ROBOT-R2");
+    return;}
+  o.factura=true; hist(o,"R2 valida la factura: RFC, importe exacto, UUID no repetido y que la orden la espere");
+  bit("ROBOT-R2","FACTURA_VALIDA",o.folio);
+  avisar(o.rfc,"Factura recibida y validada · "+o.folio,`✅ Su factura se recibió correctamente y es válida para la orden ${o.folio}.`+(o.material?"":"\nEn cuanto nuestro Almacén reciba el material, su pago pasa al banco."));
+  if(o.estatus==="ESPERANDO_MATERIAL")o.estatus="FACTURA_VALIDA";
+  revisarExpediente(o);
+}
+/* R4 + R5: expediente y pago programado */
+function revisarExpediente(o){
+  if(!(o.factura&&o.material)||o.pago)return;
+  S.nPag++; o.pago={folio:folio("PAG",S.nPag),intentos:0,estatus:"PROGRAMADO",falla:null};
+  o.estatus="EN_PAGO";
+  hist(o,`R4 arma el expediente con huella SHA-256 y genera el ticket ${o.pago.folio}`);
+  bit("ROBOT-R4","EXPEDIENTE_A_FINANZAS",`${o.folio} → ${o.pago.folio}`);
+  avisar(o.rfc,"Ticket de pago "+o.pago.folio,`🧾 Ticket ${o.pago.folio}\nSu factura y su material de la orden ${o.folio} pasan al banco. El pago de ${dinero(o.total)} sale en unos minutos.\nEscriba «${o.pago.folio}» para ver cómo va.`);
+  setTimeout(()=>pagar(o),SEG_PAGO*1000);
+  refrescar();
+}
+function pagar(o){
+  if(o.estatus!=="EN_PAGO")return;
+  o.pago.intentos++;
+  const falla=S.falla;
+  if(falla==="NINGUNA"){
+    const clave="LGX"+Math.random().toString().slice(2,12);
+    o.estatus="PAGADA";o.pago.estatus="CONFIRMADO";o.pago.clave=clave;o.pago.falla=null;
+    hist(o,"R5: el banco emulado confirma el pago · rastreo SPEI "+clave);
+    bit("ROBOT-R5","PAGO_CONFIRMADO",`${o.pago.folio} ${dinero(o.total)} · ${clave}`);
+    avisar(o.rfc,"Pago confirmado",`💰 Pago confirmado de la orden ${o.folio} por ${dinero(o.total)}.\nClave de rastreo SPEI: ${clave}`);
+  }else if(falla==="ERROR_GENERAL"&&o.pago.intentos<3){
+    hist(o,`R5: error general del banco (intento ${o.pago.intentos} de 3); se reintenta solo`);
+    bit("ROBOT-R5","REINTENTO_AUTOMATICO",`${o.pago.folio} intento ${o.pago.intentos}`);
+    setTimeout(()=>pagar(o),3000);
+  }else{
+    o.estatus="FALLA_PAGO";o.pago.estatus="FALLIDO";o.pago.falla=falla;
+    hist(o,"R5: el banco rechaza el pago · "+FALLAS[falla]+" → pasa a Finanzas");
+    bit("ROBOT-R5","PAGO_FALLIDO",`${o.pago.folio}: ${falla}`);
+    avisar(o.rfc,"Pago en proceso",falla==="CUENTA_INVALIDA"?`Su pago de la orden ${o.folio} no pudo salir porque la CLABE registrada no es válida. Envíe su CLABE correcta a Recursos Financieros.`:`⏳ Su pago de la orden ${o.folio} está en proceso: hubo un retraso con el banco. Le avisaremos cuando salga.`);
+  }
+  refrescar();
+}
+function cancelar(o,causa,razon,actor){
+  o.estatus="CANCELADA";o.cancel={causa,razon,fecha:ahora(),devuelto:false};
+  hist(o,`Compra cancelada (${CAUSAS[causa]}): ${razon}`);
+  bit(actor,"CANCELA_COMPRA",`${o.folio} · ${causa} · ${razon}`);
+  avisar(o.rfc,"Compra cancelada · "+o.folio,`❌ La orden ${o.folio} se canceló.\nCausa: ${CAUSAS[causa]}.\nRazón: ${razon}`);
+  refrescar();
+}
+/* R3: vigilante de plazos (se prueba adelantando el reloj) */
+function vigilarPlazos(){
+  S.ocs.filter(o=>o.estatus==="ESPERANDO_MATERIAL"||o.estatus==="FACTURA_VALIDA").forEach(o=>{
+    if(o.material)return;
+    const dias=(ahora()-o.fecha)/864e5;
+    if(dias>=7){cancelar(o,"MATERIAL_NO_LLEGO","El material no llegó en 7 días.","ROBOT-R3");}
+    else if(dias>=7-5/24&&!o.ultimo){o.ultimo=true;hist(o,"R3: último aviso, 5 h antes de cancelar");avisar(o.rfc,"Último aviso · "+o.folio,`⚠️ Faltan 5 horas para que se cancele la orden ${o.folio} si el material no llega al Almacén.`);}
+    else if(dias>=3&&!o.recordado){o.recordado=true;hist(o,"R3: recordatorio del día 3");avisar(o.rfc,"Recordatorio · "+o.folio,`Le recordamos que el material de la orden ${o.folio} debe llegar al Almacén antes del ${fmt(new Date(o.fecha.getTime()+7*864e5))}.`);}
+  });
+}
+
+/* ===================== Sesión ===================== */
+function llenar(u){document.getElementById("u").value=u;pw.value="logix2026";}
+function entrar(){
+  const u=document.getElementById("u").value.trim().toLowerCase();
+  if(!USUARIOS[u]||pw.value!=="logix2026"){errLogin.textContent="Usuario o contraseña incorrectos.";return;}
+  usuario=u;errLogin.textContent="";login.style.display="none";app.style.display="flex";
+  quien.innerHTML=esc(USUARIOS[u][1])+"<br>"+USUARIOS[u][0].toLowerCase();
+  tgProv.innerHTML=PROVEEDORES.map(p=>`<option value="${p.rfc}" ${p.rfc==="CDE020202BB2"?"selected":""}>${esc(p.nombre)}</option>`).join("");
+  ir(MENUS[USUARIOS[u][0]][0]);pintarTG();
+}
+function salir(){usuario=null;app.style.display="none";login.style.display="flex";pw.value="";}
+function ir(v){vistaActual=v;ocSel=null;reqSel=null;
+  menu.innerHTML=MENUS[USUARIOS[usuario][0]].map(m=>`<button class="${m===v?"activo":""}" onclick="ir('${m}')">${m}</button>`).join("");
+  refrescar();}
+function refrescar(){if(!usuario)return;vista.innerHTML=(VISTAS[vistaActual]||(()=>""))();pintarTG();}
+function toast(t){const e=document.getElementById("toast");e.textContent=t;e.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display="none",3200);}
+function pedirTexto(tit,desc,ok){mTit.textContent=tit;mDesc.textContent=desc;mTxt.value="";modal.style.display="flex";mTxt.focus();
+  mOk.onclick=()=>{const t=mTxt.value.trim();if(t.length<5){toast("Escribe la razón (mínimo 5 letras).");return;}cerrarModal();ok(t);};}
+function cerrarModal(){modal.style.display="none";}
+
+/* ===================== Pantallas ===================== */
+const tabla=(cab,filas,vacio,onclick,sel)=>`<div class="tabla-env"><table><thead><tr>${cab.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${
+  filas.length?filas.map(f=>`<tr class="${sel&&f.id===sel?"sel":""}" ${onclick?`onclick="${onclick}('${f.id}')"`:""}>${f.c.map(x=>`<td>${x}</td>`).join("")}</tr>`).join("")
+  :`<tr><td colspan="${cab.length}" class="vacio">${vacio}</td></tr>`}</tbody></table></div>`;
+const pill=e=>`<span class="pill p-${e}">${e.replaceAll("_"," ").toLowerCase()}</span>`;
+function semaforo(o){const h=Math.max(0,Math.round((o.fecha.getTime()+7*864e5-ahora())/36e5));const s=h<=24?"Rojo":h<=96?"Amarillo":"Verde";return [s,h];}
+
+const VISTAS={
+"Recepción"(){
+  const pend=S.ocs.filter(o=>!o.material&&(o.estatus==="ESPERANDO_MATERIAL"||o.estatus==="FACTURA_VALIDA")).sort((a,b)=>a.fecha-b.fecha);
+  const o=ocSel&&oc(ocSel); const r=o&&S.reqs.find(x=>x.folio===o.req);
+  const dev=S.ocs.filter(x=>x.cancel&&!x.cancel.devuelto&&x.material);
+  return `<h1>Recepción en almacén · Jefe de Almacén</h1>
+  <p class="desc">Tu único trabajo es la revisión FÍSICA. Selecciona una orden: abajo ves exactamente qué se aceptó comprar. Compara con lo que llegó y presiona «Aceptar» o «Devolución». Si aceptas, Logix sigue solo (factura, expediente y pago). Si devuelves, escribe la razón: la compra se cancela y se le avisa al proveedor.</p>
+  ${tabla(["Plazo","Folio","Proveedor","Área","Importe","Vence","Horas restantes","Factura"],pend.map(o=>{const[s,h]=semaforo(o);
+    return{id:o.folio,c:[`<b class="sem-${s}">● ${s}</b>`,o.folio,esc(nombreP(o)),esc(o.area),dinero(o.total),fmt(new Date(o.fecha.getTime()+7*864e5)),h,o.factura?"✔ Validada":"Pendiente"]};}),"No hay material por recibir.","selOC",ocSel)}
+  ${o?`<div class="caja"><b>${o.folio} · ${esc(nombreP(o))}</b><br>Requisición ${r.folio} (validada) · ${esc(o.area)} · partida ${r.partida} ${PARTIDAS[r.partida]}</div>
+  ${tabla(["Artículo que se aceptó","Unidad","Cantidad que debe llegar"],o.lineas.map((l,i)=>({id:"l"+i,c:[esc(l.d),l.u,l.c]})),"")}
+  <div class="acciones"><button class="rojo" onclick="devolver('${o.folio}')">↩ Devolución (escribir razón)</button><button class="verde" onclick="aceptar('${o.folio}')">✔ Aceptar: llegó bien</button></div>`
+  :`<div class="caja desc">Selecciona una orden de la tabla para ver qué debe llegar.</div>`}
+  <h2>Material por devolver al proveedor (compras canceladas)</h2>
+  ${tabla(["OC","Proveedor","Causa","Razón",""],dev.map(x=>({id:x.folio,c:[x.folio,esc(nombreP(x)),CAUSAS[x.cancel.causa],esc(x.cancel.razon),`<button class="sec" onclick="event.stopPropagation();devuelto('${x.folio}')">Marcar como devuelto</button>`]})),"No hay material por devolver.")}`;},
+"Fallas de pago"(){
+  const f=S.ocs.filter(o=>o.estatus==="FALLA_PAGO");
+  const detenido=f.reduce((s,o)=>s+o.total,0);
+  return `<h1>Fallas de pago · Recursos Financieros</h1>
+  <p class="desc">Los pagos salen solos. Aquí solo aparece lo que el banco rechazó y necesita una decisión sobre el dinero: reintentar, corregir la cuenta o cancelar con motivo.</p>
+  <div class="kpis"><div class="kpi ${f.length?"falla":""}"><b>${f.length}</b><span>fallas por decidir</span></div><div class="kpi"><b>${dinero(detenido)}</b><span>dinero detenido</span></div>
+  <div class="kpi"><b>${S.ocs.filter(o=>o.estatus==="PAGADA").length}</b><span>pagos confirmados solos</span></div></div>
+  ${f.length?f.map(o=>`<div class="caja falla"><div class="fila" style="justify-content:space-between"><b>${o.pago.folio} · ${o.folio} · ${esc(nombreP(o))}</b><b>${dinero(o.total)}</b></div>
+    <p><b>Por qué falló:</b> ${FALLAS[o.pago.falla]}<br><b>Qué decidir:</b> ${DECIDIR[o.pago.falla]}<br><small>Intentos: ${o.pago.intentos} · CLABE ${prov(o.rfc).clabe}</small></p>
+    <div class="acciones"><button class="rojo" onclick="cancelarPago('${o.folio}')">Cancelar con motivo</button><button onclick="reintentar('${o.folio}')">↻ Reintentar pago</button></div></div>`).join("")
+  :`<div class="caja" style="text-align:center;font-size:18px;color:var(--verde)">✔ No hay fallas. Todos los pagos salieron solos.</div>`}
+  <p class="desc" style="margin-top:14px">Para provocar una falla: entra como <b>admin</b> › Banco emulado.</p>`;},
+"Inicio"(){
+  const c=e=>S.ocs.filter(o=>o.estatus===e).length;
+  const pagadas=S.ocs.filter(o=>o.estatus==="PAGADA");
+  return `<h1>Inicio · Administrador</h1><p class="desc">Resumen de todas las compras. Los indicadores se calculan solos con lo que registran los robots.</p>
+  <div class="kpis"><div class="kpi"><b>${S.reqs.length}</b><span>requisiciones validadas recibidas</span></div>
+  <div class="kpi"><b>${c("ESPERANDO_MATERIAL")+c("FACTURA_VALIDA")}</b><span>esperando material</span></div>
+  <div class="kpi"><b>${c("EN_PAGO")}</b><span>en pago (programado)</span></div>
+  <div class="kpi"><b>${pagadas.length}</b><span>pagadas · ${dinero(pagadas.reduce((s,o)=>s+o.total,0))}</span></div>
+  <div class="kpi ${c("FALLA_PAGO")?"falla":""}"><b>${c("FALLA_PAGO")}</b><span>fallas de pago (Finanzas)</span></div>
+  <div class="kpi"><b>${c("CANCELADA")}</b><span>canceladas</span></div>
+  <div class="kpi"><b>${S.avisos.length}</b><span>avisos enviados al proveedor</span></div></div>
+  <h2>Todas las órdenes</h2>
+  ${tabla(["Folio","Proveedor","Área","Importe","Estatus","Material","Factura"],[...S.ocs].reverse().map(o=>({id:o.folio,c:[o.folio,esc(nombreP(o)),esc(o.area),dinero(o.total),pill(o.estatus),o.material?"✔":"—",o.factura?"✔":"—"]})),"","verFolio")}
+  <p class="desc">Clic en una orden para ver su línea de tiempo.</p>`;},
+"Requisiciones"(){
+  const r=reqSel&&S.reqs.find(x=>x.folio===reqSel);
+  return `<h1>Requisiciones validadas</h1><p class="desc">Adquisiciones ya no captura nada: cada departamento manda su requisición ya validada (formato 001-03, partida presupuestal y 4 firmas). En Logix real llega una cada hora (robot R0); aquí puedes simular una ahora. En cuanto llega, R1 genera la orden de compra con el proveedor fijo de la partida y se la manda por Telegram.</p>
+  <div class="caja fila"><select id="selDepto">${Object.keys(DEPTOS).map(d=>`<option ${d==="Departamento de Sistemas y Computación"?"selected":""}>${d}</option>`).join("")}</select>
+  <button onclick="simular()">Simular requisición ahora</button></div>
+  ${tabla(["Folio","Llegó","Departamento","Partida","Orden generada","Estatus"],S.reqs.map(q=>({id:q.folio,c:[q.folio,fmt(q.fecha),esc(q.area),q.partida,q.oc,pill(oc(q.oc).estatus)]})),"","selReq",reqSel)}
+  ${r?`<div class="caja"><b>${r.folio}</b> · ${esc(r.area)} · partida ${r.partida} ${PARTIDAS[r.partida]}<br><b>Justificación:</b> ${esc(r.just)}<br><b>Firmas que la validan:</b> ${esc(r.firmas)}</div>`:`<p class="desc">Selecciona una requisición para ver su justificación y firmas.</p>`}`;},
+"Buzón de facturas"(){
+  const esp=S.ocs.filter(o=>!o.factura&&["ESPERANDO_MATERIAL","MATERIAL_RECIBIDO"].includes(o.estatus));
+  return `<h1>Buzón de facturas</h1><p class="desc">Simula al proveedor mandando su factura XML (por correo o Telegram). El robot R2 la valida antes de pagar: RFC emisor y receptor, importe exacto, UUID no repetido, tipo de comprobante y que la orden espere factura. Si no es válida, la compra se cancela.</p>
+  <div class="caja fila"><select id="selFac">${esp.map(o=>`<option>${o.folio}</option>`).join("")||"<option value=''>No hay órdenes esperando factura</option>"}</select>
+  <button class="verde" onclick="facturaBuzon(false)">Factura correcta</button><button class="rojo" onclick="facturaBuzon(true)">Factura con importe equivocado</button></div>
+  ${tabla(["Folio","Proveedor","Importe","Material","Estatus"],esp.map(o=>({id:o.folio,c:[o.folio,esc(nombreP(o)),dinero(o.total),o.material?"✔ recibido":"pendiente",pill(o.estatus)]})),"No hay órdenes esperando factura.")}`;},
+"Compras canceladas"(){
+  const c=S.ocs.filter(o=>o.cancel);
+  return `<h1>Compras canceladas</h1><p class="desc">Cada cancelación tiene causa y razón, y el proveedor recibió el aviso al instante.</p>
+  ${tabla(["Folio","Proveedor","Causa","Razón","Fecha","Material"],c.map(o=>({id:o.folio,c:[o.folio,esc(nombreP(o)),CAUSAS[o.cancel.causa],esc(o.cancel.razon),fmt(o.cancel.fecha),o.material?(o.cancel.devuelto?"devuelto":"por devolver"):"no llegó"]})),"No hay compras canceladas.","verFolio")}`;},
+"Proveedores"(){
+  return `<h1>Proveedores fijos</h1><p class="desc">Proveedores ya avalados por el Tec. Cada partida presupuestal tiene uno.</p>
+  ${tabla(["Proveedor","RFC","Partida","CLABE","Telegram"],PROVEEDORES.map(p=>({id:p.rfc,c:[esc(p.nombre),p.rfc,p.partida+" "+PARTIDAS[p.partida],p.clabe,p.rfc==="CDE020202BB2"?"✔ vinculado":"simulado en esta demo"]})),"")}`;},
+"Robots y avisos"(){
+  return `<h1>Robots y avisos</h1><p class="desc">En Logix real los robots corren cada minuto. Aquí puedes adelantar el reloj para ver al vigilante de plazos (R3): recordatorio el día 3, último aviso 5 h antes y cancelación el día 7.</p>
+  <div class="caja fila"><b>Reloj de la demo:</b> ${fmt(ahora())}<button onclick="adelantar(1)">⏩ Adelantar 1 día</button><button class="sec" onclick="adelantar(3)">⏩ Adelantar 3 días</button><button class="sec" onclick="reiniciar();reloj=0;refrescar();toast('Demo reiniciada')">Reiniciar demo</button></div>
+  <div class="caja"><b>Robots:</b> R0 requisiciones simuladas · R1 orden de compra · R2 validador de facturas · R3 plazos · R4 expediente · R5 pago · R6 avisos · R7 bot de Telegram</div>
+  <h2>Avisos enviados (correo y Telegram)</h2>
+  ${tabla(["Fecha","Proveedor","Asunto","Adjunto"],[...S.avisos].filter(a=>!a.yo).reverse().map((a,i)=>({id:"a"+i,c:[fmt(a.fecha),esc(prov(a.rfc).nombre),esc(a.asunto),a.adjunto?"📄 "+a.adjunto:""]})),"")}`;},
+"Banco emulado"(){
+  return `<h1>Banco emulado</h1><p class="desc">El banco no mueve dinero real. Elige una falla para ver cómo responde Logix: el error general se reintenta solo hasta 3 veces; las demás pasan a Finanzas para que decida.</p>
+  <div class="caja">${Object.entries(FALLAS).map(([k,v])=>`<label style="display:block;margin:6px 0"><input type="radio" name="falla" value="${k}" ${S.falla===k?"checked":""} onchange="S.falla=this.value;bit('ADMIN','CAMBIA_FALLA_BANCO',this.value);toast('Banco emulado: '+this.value)"> <b>${k}</b> · ${v}</label>`).join("")}</div>
+  <p class="desc">Prueba: elige SALDO_INSUFICIENTE › Buzón de facturas › Factura correcta de una orden › almacen › Recepción › Aceptar. En unos segundos la falla aparece en <b>finanzas</b> › Fallas de pago.</p>`;},
+"Bitácora"(){
+  return `<h1>Bitácora</h1><p class="desc">Todo lo que hacen los robots y las personas queda registrado. En la base de datos real un trigger impide borrar o modificar estos registros.</p>
+  ${tabla(["Fecha","Actor","Acción","Detalle"],S.bitacora.map((b,i)=>({id:"b"+i,c:[fmt(b.fecha),b.actor,b.accion,esc(b.detalle)]})),"")}`;},
+"Consultar folio"(){
+  return `<h1>Consultar folio</h1><p class="desc">Escribe un folio de orden (OC-…), requisición (REQ-…) o ticket de pago (PAG-…).</p>
+  <div class="caja fila"><input id="qFolio" placeholder="OC-2026-0002" value="${esc(consultar.ult||"")}" onkeydown="if(event.key==='Enter')consultar()"><button onclick="consultar()">Consultar</button></div><div id="resFolio">${consultar.html||""}</div>`;}
+};
+
+/* ===================== Acciones ===================== */
+function selOC(f){ocSel=f;refrescar();}
+function selReq(f){reqSel=f;refrescar();}
+function aceptar(f){const o=oc(f);o.material=true;if(o.estatus==="ESPERANDO_MATERIAL")o.estatus="MATERIAL_RECIBIDO";
+  hist(o,"El Jefe de Almacén revisa y acepta el material");bit("ALMACEN","CONFIRMA_MATERIAL",f);
+  avisar(o.rfc,"Material recibido · "+f,o.factura?`✅ Nuestro Almacén recibió y revisó su material de la orden ${f}.`:`✅ Nuestro Almacén recibió y revisó su material de la orden ${f}.\nEnvíe su factura XML por este chat con «${f}» en el pie (tiene 48 horas).`);
+  ocSel=null;toast("Material aceptado: "+f+(o.factura?" · pasa a pago":" · se le pidió la factura al proveedor"));revisarExpediente(o);refrescar();}
+function devolver(f){pedirTexto("Devolución · "+f,"Escribe qué estuvo mal. La compra se cancela y el proveedor recibe la razón.",t=>{const o=oc(f);o.material=true;ocSel=null;cancelar(o,"DEVOLUCION",t,"ALMACEN");toast("Devolución registrada: "+f);});}
+function devuelto(f){oc(f).cancel.devuelto=true;bit("ALMACEN","MATERIAL_DEVUELTO",f);refrescar();}
+function reintentar(f){const o=oc(f);o.estatus="EN_PAGO";o.pago.intentos=0;bit("FINANZAS","REINTENTA_PAGO",o.pago.folio);hist(o,"Finanzas reintenta el pago");
+  toast("Reintentando "+o.pago.folio+"… (banco: "+S.falla+")");refrescar();setTimeout(()=>pagar(o),2500);}
+function cancelarPago(f){pedirTexto("Cancelar pago · "+f,"Escribe el motivo. La compra se cancela y el proveedor recibe el aviso.",t=>{cancelar(oc(f),"PAGO_CANCELADO_FINANZAS",t,"FINANZAS");toast("Pago cancelado");});}
+function simular(){const o=nuevaRequisicion(selDepto.value);reqSel=o.req;tgProv.value=o.rfc;pintarTG();toast(`Llegó ${o.req} y se envió ${o.folio} a ${nombreP(o)}`);refrescar();}
+function facturaBuzon(mal){const f=document.getElementById("selFac").value;if(!f){toast("No hay órdenes esperando factura.");return;}
+  recibirFactura(oc(f),mal,"correo");toast(mal?"Factura rechazada: la compra "+f+" se canceló":"Factura validada: "+f);refrescar();}
+function adelantar(d){reloj+=d*864e5;vigilarPlazos();toast("Reloj adelantado "+d+" día(s)");refrescar();}
+function verFolio(f){consultar.ult=f;ir("Consultar folio");consultar();}
+function consultar(){
+  const q=(document.getElementById("qFolio")?.value||consultar.ult||"").trim().toUpperCase();consultar.ult=q;
+  let o=oc(q)||S.ocs.find(x=>x.pago&&x.pago.folio===q)||S.ocs.find(x=>x.req===q);
+  consultar.html=!o?`<div class="caja">No existe el folio «${esc(q)}».</div>`:
+   `<div class="caja"><b>${o.folio}</b> · ${esc(nombreP(o))} · ${dinero(o.total)} ${pill(o.estatus)}<br><small>Requisición ${o.req}${o.pago?" · ticket "+o.pago.folio:""}</small></div>
+    <div class="caja"><ul class="linea-tiempo">${o.historia.map(h=>`<li>${esc(h.t)}<br><small>${fmt(h.fecha)}</small></li>`).join("")}</ul></div>`;
+  const r=document.getElementById("resFolio");if(r)r.innerHTML=consultar.html;}
+
+/* ===================== Telegram simulado (R7) ===================== */
+function pintarTG(rfc){
+  if(rfc&&tgProv.value!==rfc&&tgProv.value)return; // solo repinta el chat que está abierto
+  const p=tgProv.value||"CDE020202BB2";
+  const m=S.avisos.filter(a=>a.rfc===p).sort((a,b)=>a.fecha-b.fecha);
+  tgMsgs.innerHTML=m.length?m.map(a=>`<div class="burbuja ${a.yo?"yo":""}">${a.yo?"":"<b>"+esc(a.asunto)+"</b>\n"}${esc(a.texto)}${a.adjunto?`<div class="adj">📄 ${esc(a.adjunto)}</div>`:""}<div class="h">${a.fecha.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</div></div>`).join("")
+    :`<div class="vacio">Aún no hay mensajes para este proveedor.</div>`;
+  tgMsgs.scrollTop=tgMsgs.scrollHeight;}
+function tgDecir(t){S.avisos.push({fecha:ahora(),rfc:tgProv.value,asunto:"",texto:t,yo:true});}
+function tgEscribir(){
+  const t=tgTxt.value.trim().toUpperCase();if(!t)return;tgDecir(t);tgTxt.value="";
+  const o=oc(t)||S.ocs.find(x=>x.pago&&x.pago.folio===t);
+  if(!o||o.rfc!==tgProv.value)avisar(tgProv.value,"Logix",`No encontré «${t}» entre sus órdenes. Escriba el folio tal como viene en su orden (por ejemplo OC-2026-0002).`);
+  else{const ult=o.historia[o.historia.length-1];
+    avisar(o.rfc,"Estatus de "+t,`${o.folio} · ${dinero(o.total)}\nEstatus: ${o.estatus.replaceAll("_"," ").toLowerCase()}\nMaterial: ${o.material?"recibido":"pendiente"} · Factura: ${o.factura?"validada":"pendiente"}${o.pago?"\nPago "+o.pago.folio+": "+o.pago.estatus.toLowerCase():""}\nÚltimo movimiento: ${ult.t}`);}
+  refrescar();}
+function tgFactura(mal){
+  const p=tgProv.value; const pie=tgTxt.value.trim().toUpperCase();
+  let o=pie?oc(pie):S.ocs.filter(x=>x.rfc===p&&!x.factura&&["ESPERANDO_MATERIAL","MATERIAL_RECIBIDO"].includes(x.estatus)).sort((a,b)=>a.fecha-b.fecha)[0];
+  if(!o||o.rfc!==p){tgDecir("📎 factura.xml"+(pie?" · "+pie:""));avisar(p,"Logix","No encontré una orden suya que espere factura"+(pie?" con el folio «"+pie+"»":"")+". Escriba el folio en el pie del archivo.");return;}
+  tgTxt.value="";
+  S.avisos.push({fecha:ahora(),rfc:p,asunto:"",texto:"📎 "+o.folio+(mal?"_factura_importe_mal.xml":"_factura_correcta.xml")+"\nPie: "+o.folio,yo:true});
+  recibirFactura(o,mal,"Telegram");refrescar();}
+
+/* Inicio */
+reiniciar();
+document.getElementById("u").addEventListener("keydown",e=>{if(e.key==="Enter")pw.focus();});
+pw.addEventListener("keydown",e=>{if(e.key==="Enter")entrar();});
+</script>
+</body>
+</html>

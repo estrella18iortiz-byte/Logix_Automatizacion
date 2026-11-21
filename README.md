@@ -2,6 +2,8 @@
 
 [![Pruebas de Logix](https://github.com/estrella18iortiz-byte/Logix_Automatizacion/actions/workflows/pruebas.yml/badge.svg)](https://github.com/estrella18iortiz-byte/Logix_Automatizacion/actions/workflows/pruebas.yml)
 
+🌐 **Demo web (sin instalar nada):** https://estrella18iortiz-byte.github.io/Logix_Automatizacion/demo/ · usuarios `admin`, `almacen`, `finanzas` con contraseña `logix2026`. Reproduce el panel y los robots en el navegador con datos simulados (código en `demo/index.html`); la aplicación completa es la de escritorio.
+
 Proyecto del reto **«Automatiza tu Tec»** (Fundamentos de Ingeniería de Software SCC-1007, TecNM Campus Matehuala).
 
 **Qué resuelve:** las compras que se repiten una y otra vez con **proveedores fijos, ya avalados por el Tec**. Los departamentos piden material (Recursos Humanos: hojas y bolígrafos; Servicios Generales: jabón y detergente; Sistemas: mouse y tóner...) y su **requisición llega ya validada**. A partir de ahí todo es repetitivo: generar y mandar la orden de compra, esperar el material, pedir y revisar la factura, juntar el expediente para Recursos Financieros, pagar y avisarle a cada quien. Logix lo hace solo, **paga a través de un banco emulado** y avisa por **correo y Telegram**.
