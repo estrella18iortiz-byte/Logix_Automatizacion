@@ -1,5 +1,7 @@
 # Logix 3.1 · Compras repetitivas con proveedores fijos
 
+[![Pruebas de Logix](https://github.com/estrella18iortiz-byte/Logix_Automatizacion/actions/workflows/pruebas.yml/badge.svg)](https://github.com/estrella18iortiz-byte/Logix_Automatizacion/actions/workflows/pruebas.yml)
+
 Proyecto del reto **«Automatiza tu Tec»** (Fundamentos de Ingeniería de Software SCC-1007, TecNM Campus Matehuala).
 
 **Qué resuelve:** las compras que se repiten una y otra vez con **proveedores fijos, ya avalados por el Tec**. Los departamentos piden material (Recursos Humanos: hojas y bolígrafos; Servicios Generales: jabón y detergente; Sistemas: mouse y tóner...) y su **requisición llega ya validada**. A partir de ahí todo es repetitivo: generar y mandar la orden de compra, esperar el material, pedir y revisar la factura, juntar el expediente para Recursos Financieros, pagar y avisarle a cada quien. Logix lo hace solo, **paga a través de un banco emulado** y avisa por **correo y Telegram**.
@@ -93,6 +95,8 @@ Los plazos (7 días, día 3, 5 h, 48 h), los reintentos del banco y cada cuánto
 | `python probar_r2_facturas.py` | 10 facturas de prueba por el robot R2 y si la OC queda cancelada o no | 10/10 |
 | `python probar_flujo_completo.py` | **Todas las ramas del diagrama** (CP-01 a CP-22 + CP-03b simulador + CP-11b pago a los 5–10 min); evidencia en `resultados/resultados_pruebas.csv` | 24/24 |
 | `python capturar_evidencias.py` | Maneja el panel solo y toma 23 capturas de evidencia en `evidencias/` | — |
+
+**En GitHub (sin instalar nada):** las pruebas unitarias, las de facturas R2 y las de punta a punta corren solas en cada cambio, con un SQL Server propio y datos simulados (`.github/workflows/pruebas.yml`). Pestaña **Actions** › «Pruebas de Logix» › abre una ejecución: se ve cada paso, la tabla de resultados y la evidencia descargable (CSV y PDF generados).
 
 > `probar_flujo_completo.py` y `capturar_evidencias.py` **reinician la base**. Al terminar, corre `REINICIAR_DATOS.bat` antes de una demostración.
 

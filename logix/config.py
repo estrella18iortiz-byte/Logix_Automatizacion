@@ -41,8 +41,15 @@ TELEGRAM_TOKEN = os.getenv("LOGIX_TELEGRAM_TOKEN", "")
 MODO_SIMULADO = os.getenv("LOGIX_MODO_SIMULADO", "1") == "1"
 
 
+# Usuario y contraseña de SQL Server: solo para las pruebas en GitHub (Linux no tiene sesión de Windows).
+# En la PC se dejan vacíos y se usa la autenticación de Windows.
+SQL_USUARIO = os.getenv("LOGIX_SQL_USER", "")
+SQL_PASSWORD = os.getenv("LOGIX_SQL_PASSWORD", "")
+
+
 def cadena_conexion(base: str | None = None) -> str:
+    acceso = (f"UID={SQL_USUARIO};PWD={SQL_PASSWORD};" if SQL_USUARIO else "Trusted_Connection=yes;")
     return (
         f"DRIVER={{{SQL_DRIVER}}};SERVER={SQL_SERVER};DATABASE={base or SQL_DB};"
-        "Trusted_Connection=yes;TrustServerCertificate=yes;"
+        f"{acceso}TrustServerCertificate=yes;"
     )

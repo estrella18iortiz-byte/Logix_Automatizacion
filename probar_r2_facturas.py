@@ -60,7 +60,8 @@ def main():
     print(f"\nResultado: {aprobados} de {len(casos)} casos como se esperaba.")
     print("Estatus de las OC:", ", ".join(f"{f}={e}" for f, e in estatus))
     print(f"Avisos en cola (correo y Telegram): {n_not}")
+    return aprobados == len(casos)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(0 if main() else 1)

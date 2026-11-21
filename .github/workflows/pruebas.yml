@@ -1,0 +1,100 @@
+# Pruebas automáticas de Logix en GitHub.
+# Se ejecutan solas en cada cambio (push) y también con el botón «Run workflow» de la pestaña Actions.
+# Usan un SQL Server propio en un contenedor y SOLO datos simulados (sin Telegram ni correo reales).
+name: Pruebas de Logix
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pruebas:
+    name: Pruebas (unitarias, facturas R2 y punta a punta)
+    runs-on: ubuntu-24.04
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Logix_Pruebas_2026!"   # solo vive en este contenedor temporal
+          MSSQL_PID: Developer
+        ports: ["1433:1433"]
+    env:
+      LOGIX_SQL_SERVER: localhost,1433
+      LOGIX_SQL_USER: sa
+      LOGIX_SQL_PASSWORD: "Logix_Pruebas_2026!"
+      LOGIX_SQL_DRIVER: ODBC Driver 18 for SQL Server
+      LOGIX_MODO_SIMULADO: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: 1 · Descargar el código
+        uses: actions/checkout@v4
+
+      - name: 2 · Instalar Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 3 · Instalar el driver ODBC 18 de SQL Server (si falta)
+        run: |
+          if ! odbcinst -q -d | grep -q "ODBC Driver 18"; then
+            curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc >/dev/null
+            curl -sSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+            sudo apt-get update && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+          fi
+          odbcinst -q -d
+
+      - name: 4 · Instalar librerías de Logix
+        run: pip install -r requirements.txt
+
+      - name: 5 · Esperar a que SQL Server arranque
+        run: |
+          for i in $(seq 1 40); do
+            python -c "import pyodbc; from logix import config; pyodbc.connect(config.cadena_conexion('master'), timeout=3)" 2>/dev/null && { echo "SQL Server listo"; exit 0; }
+            echo "esperando ($i)..."; sleep 3
+          done
+          echo "SQL Server no arrancó"; exit 1
+
+      - name: 6 · Crear la base y los datos simulados
+        run: python generar_datos.py
+
+      - name: 7 · Pruebas unitarias (reglas de factura, banco y bot de Telegram)
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: 8 · Pruebas del robot R2 con 10 facturas
+        run: |
+          python generar_datos.py > /dev/null
+          python probar_r2_facturas.py
+
+      - name: 9 · Pruebas de punta a punta (24 casos con su criterio de aceptación)
+        run: python probar_flujo_completo.py
+
+      - name: 10 · Tabla de resultados
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import csv, pathlib
+          f = pathlib.Path("resultados/resultados_pruebas.csv")
+          if not f.exists():
+              print("No se generaron resultados."); raise SystemExit
+          filas = list(csv.DictReader(f.open(encoding="utf-8-sig")))
+          ok = sum(r["resultado"] == "APROBADO" for r in filas)
+          print(f"## Logix · pruebas de punta a punta: {ok} de {len(filas)} aprobadas\n")
+          print("| Caso | Criterio | Qué se prueba | Resultado | Segundos |")
+          print("|---|---|---|---|---|")
+          for r in filas:
+              icono = "✅" if r["resultado"] == "APROBADO" else "❌"
+              print(f"| {r['id']} | {r['criterio']} | {r['descripcion']} | {icono} {r['resultado']} | {r['segundos']} |")
+          PY
+
+      - name: 11 · Guardar la evidencia (resultados y PDF generados)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidencia-pruebas-logix
+          path: |
+            resultados/
+            documentos/
+          if-no-files-found: ignore

@@ -453,7 +453,8 @@ def main():
     aprobados = sum(r[3] == "APROBADO" for r in RESULTADOS)
     print(f"\n{aprobados} de {len(RESULTADOS)} casos aprobados · evidencia en {salida / 'resultados_pruebas.csv'}")
     print("Indicadores:", ind)
+    return aprobados == len(RESULTADOS)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(0 if main() else 1)
