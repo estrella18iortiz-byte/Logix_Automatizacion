@@ -62,7 +62,7 @@ Usuarios (contraseña `logix2026`):
 ## Robots
 | Robot | Qué hace solo | Cuándo | Archivo |
 |---|---|---|---|
-| **R0 · Simulador de requisiciones** | Simula los eventos: llega una requisición validada (001-03, partida, 4 firmas) de un departamento | Cada hora (parámetro `MINUTOS_ENTRE_REQUISICIONES`; 0 = apagado) | `logix/simulador.py` |
+| **R0 · Simulador de requisiciones** | Simula los eventos: llega una requisición validada (001-03, partida, 4 firmas) de un departamento. Si es de cómputo (Cómputo Demo, el proveedor vinculado a Telegram) deja lista su factura correcta en `datos_prueba/facturas_telegram/` | Cada hora (parámetro `MINUTOS_ENTRE_REQUISICIONES`; 0 = apagado) | `logix/simulador.py` |
 | R1 · Orden de compra | Genera la OC (001-05) en PDF con QR con el proveedor fijo de la partida y se la manda con el plazo de 7 días | En cuanto llega la requisición | `logix/compras.py`, `pdfs.py` |
 | **R2 · Validador de facturas** | Lee el XML y valida RFC emisor y receptor, importe exacto, UUID no repetido, tipo de comprobante y que la OC espere factura. **Si no es válida, cancela la compra** y le explica al proveedor por qué | Al llegar la factura (Telegram o correo) | `logix/cfdi.py`, `validacion.py`, `robot_facturas.py` |
 | R3 · Vigilante de plazos | Material: recordatorio el día 3, último aviso 5 h antes del día 7, cancelación el día 7. Factura: cancelación a las 48 h de que llegó el material | Cada minuto | `logix/plazos.py` |
@@ -118,6 +118,8 @@ Los plazos (7 días, día 3, 5 h, 48 h), los reintentos del banco y cada cuánto
 7. **Compra cancelada** con la causa y la razón.
 
 Desde el bot el proveedor puede escribir su folio (`OC-…` o `PAG-…`) para ver cómo va, y mandar el XML con el folio en el pie.
+
+**Factura para la demostración:** cada orden de cómputo deja sola su factura correcta en `datos_prueba/facturas_telegram/<folio>_factura_correcta.xml`. Para cualquier otra orden (o para la versión con importe equivocado) usa **GENERAR_FACTURA.bat**.
 
 ## Conectar Telegram (5 minutos, gratis)
 1. En Telegram, abre **@BotFather** › `/newbot` › nombre «Logix Asistente» y un usuario que termine en `bot`. Te da un **token**.

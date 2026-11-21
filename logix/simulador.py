@@ -22,12 +22,21 @@ En cuanto llega la requisición, el robot R1 (compras.py) genera la orden de com
 
 El robot corre el simulador en cada vuelta: si ya pasaron MINUTOS_ENTRE_REQUISICIONES
 desde la última, llega una nueva (0 = simulador apagado).
+
+Para las compras de cómputo (partida 21401, proveedor Cómputo Demo, el que está vinculado a
+Telegram) se deja lista la factura XML correcta en datos_prueba/facturas_telegram/, para que
+el proveedor simulado solo tenga que mandarla por el chat.
 """
 import random
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from . import compras, db
+from .cfdi_simulado import generar_xml
+
+CARPETA_FACTURAS = Path(__file__).resolve().parent.parent / "datos_prueba" / "facturas_telegram"
+PARTIDA_CON_FACTURA = "21401"    # Cómputo Demo
 
 ACTOR = "SIMULADOR-R0"
 
@@ -114,7 +123,27 @@ def generar_requisicion(cur, area: str | None = None, lineas: list | None = None
     cur.execute("SELECT id FROM proveedores WHERE rfc = ? AND activo = 1", PROVEEDOR_DE_PARTIDA[partida])
     proveedor_id = cur.fetchone()[0]
     folio_oc = compras.generar_oc(cur, proveedor_id, area, lineas, requisicion_id=req_id)
+    if partida == PARTIDA_CON_FACTURA:
+        guardar_factura_correcta(cur, folio_oc)
     return folio_req, folio_oc
+
+
+def guardar_factura_correcta(cur, folio_oc: str) -> Path | None:
+    """Deja lista la factura XML correcta de la orden (lo que mandaría el proveedor).
+    Si no se puede escribir el archivo, la compra sigue igual (solo es apoyo para la demostración)."""
+    try:
+        cur.execute("""SELECT oc.id, p.rfc, p.razon_social FROM ordenes_compra oc
+                       JOIN proveedores p ON p.id = oc.proveedor_id WHERE oc.folio = ?""", folio_oc)
+        oc_id, rfc, razon = cur.fetchone()
+        lineas = [(l["descripcion"], l["cantidad"], l["precio_unitario"]) for l in compras.lineas_oc(cur, oc_id)]
+        xml = generar_xml(rfc, razon, db.parametro(cur, "RFC_INSTITUCION"), lineas, folio=f"F{folio_oc[-4:]}")
+        CARPETA_FACTURAS.mkdir(parents=True, exist_ok=True)
+        ruta = CARPETA_FACTURAS / f"{folio_oc}_factura_correcta.xml"
+        ruta.write_bytes(xml)
+        return ruta
+    except Exception as e:  # noqa: BLE001
+        print(f"[R0] No se pudo guardar la factura de {folio_oc}: {e}")
+        return None
 
 
 def tal_vez_generar(cur, ahora: datetime | None = None) -> int:

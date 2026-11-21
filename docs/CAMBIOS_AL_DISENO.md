@@ -91,7 +91,7 @@ Diagramas nuevos para pegar en los documentos: `diagramas/01_flujo_proceso.png`,
 
 ### E3 (arquitectura / base de datos)
 - **Modelo de datos:** `diagramas/03_modelo_datos.png` y `sql/01_esquema.sql` (15 tablas, con `requisiciones`).
-- **Componente nuevo 3.1:** simulador de requisiciones (`logix/simulador.py`), catálogo de departamentos con sus artículos, partida y proveedor fijo.
+- **Componente nuevo 3.1:** simulador de requisiciones (`logix/simulador.py`), catálogo de departamentos con sus artículos, partida y proveedor fijo. Las órdenes de cómputo (partida 21401) dejan lista su factura XML correcta en `datos_prueba/facturas_telegram/` para la demostración por Telegram.
 - **Estados de la OC:** `diagramas/02_estados_oc.png`.
 - **Componente nuevo:** banco emulado (`logix/banco_emulado.py`). Valida la CLABE con el dígito verificador oficial, el saldo, el límite por operación, la moneda (MXN) y los duplicados. Tiene una «falla simulada» para la demostración.
 - Se mantiene: Python en lugar de n8n, **Telegram** en lugar de WhatsApp, **SQL Server 2025**.
